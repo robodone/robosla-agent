@@ -137,9 +137,9 @@ func parseGcodeCommand(line string) (*Cmd, error) {
 		num := int(m['M'] + 0.5)
 		switch num {
 		case 106:
-			asm()
+			asm('P', 'S')
 		case 107:
-			asm()
+			asm('P', 'S')
 		default:
 			return nil, fmt.Errorf("unsupported command M%d", num)
 		}
