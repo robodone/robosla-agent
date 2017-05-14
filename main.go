@@ -102,10 +102,27 @@ func parseGcodeCommand(line string) (*Cmd, error) {
 		// TODO(krasin): make it more rigor.
 		num := int(m['G'] + 0.5)
 		switch num {
+		case 0:
+			// G0. Rapid linear move.
+			// Only allow Z movements for now.
+			asm('Z', 'F')
+		case 1:
+			// G1. Linear move.
+			// Only allow Z movements for now.
+			asm('Z', 'F')
+		case 4:
+			// G4. Dwell. P value is the delay in ms.
+			asm('P')
+		case 21:
+			// G21. Set units to millimeters.
+			asm()
 		case 28:
 			// G28. Homing. Only support Z homing for now.
 			// F is a feed rate in units per minute.
 			asm('Z', 'F')
+		case 90:
+			// G90. Set to absolute positioning.
+			asm()
 		default:
 			return nil, fmt.Errorf("unsupported command G%d", num)
 		}
@@ -115,6 +132,10 @@ func parseGcodeCommand(line string) (*Cmd, error) {
 		// TODO(krasin): make it more rigor.
 		num := int(m['M'] + 0.5)
 		switch num {
+		case 106:
+			asm()
+		case 107:
+			asm()
 		default:
 			return nil, fmt.Errorf("unsupported command M%d", num)
 		}
