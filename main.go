@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/robodone.com/agent/gcode"
 	"github.com/samofly/serial"
 )
 
@@ -173,6 +177,63 @@ func loadGcode(fname string) ([]*Cmd, error) {
 	return cmds, nil
 }
 
+type Request struct {
+	Type   string
+	LineNo int
+	AckCh  *chan bool
+}
+
+func handleTraffic(reqCh chan *Request) {
+	oks := make(map[int]bool)
+	waits := make(map[int]*chan bool)
+	for req := range reqCh {
+		switch req.Type {
+		case "OK":
+			oks[req.LineNo] = true
+			if ch, ok := waits[req.LineNo]; ok {
+				*ch <- true
+				delete(waits, req.LineNo)
+			}
+		case "WaitForOK":
+			if oks[req.LineNo] {
+				*req.AckCh <- true
+				continue
+			}
+			if _, ok := waits[req.LineNo]; ok {
+				failf("Double wait for line %d", req.LineNo)
+			}
+			waits[req.LineNo] = req.AckCh
+
+		default:
+			failf("Unknown request type: %s", req.Type)
+		}
+	}
+}
+
+func readFromDevice(r io.Reader, reqCh chan *Request) {
+	in := bufio.NewScanner(r)
+	for in.Scan() {
+		txt := strings.TrimSpace(in.Text())
+		if strings.HasPrefix(txt, "ok ") {
+			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
+			if err != nil {
+				failf("Failed to parse a line number from an ok response %q: %v", txt, err)
+			}
+			reqCh <- &Request{Type: "OK", LineNo: int(lineno)}
+		}
+		fmt.Printf("%s\n", txt)
+	}
+	if err := in.Err(); err != nil {
+		failf("readFromDevice: %v", err)
+	}
+}
+
+func waitForOK(reqCh chan *Request, lineno int) {
+	ackCh := make(chan bool)
+	reqCh <- &Request{Type: "WaitForOK", LineNo: lineno, AckCh: &ackCh}
+	<-ackCh
+}
+
 func main() {
 	flag.Parse()
 
@@ -194,7 +255,19 @@ func main() {
 		failf("Could not load gcode from %s: %v", *gcodePath, err)
 	}
 	logf("Loaded %d gcode commands from %s.", len(cmds), *gcodePath)
-	for i := 0; i < 100 && i < len(cmds); i++ {
-		logf("#%d: %s", i+1, cmds[i].Text)
+
+	reqCh := make(chan *Request)
+	go handleTraffic(reqCh)
+	go readFromDevice(conn, reqCh)
+
+	time.Sleep(time.Second)
+	for i := 0; i < len(cmds); i++ {
+		lineno := i + 1
+		cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
+		fmt.Printf("%s\n", cmd)
+		if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
+			failf("Writing to the serial port: %v", err)
+		}
+		waitForOK(reqCh, lineno)
 	}
 }
