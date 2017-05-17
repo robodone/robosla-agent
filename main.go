@@ -297,6 +297,7 @@ func main() {
 	go readFromDevice(conn, reqCh)
 
 	time.Sleep(time.Second)
+	var lineno int
 	for i := 0; i < len(cmds); i++ {
 		if cmds[i].IsHost() {
 			// We should handle host command failures gracefully. At the very least,
@@ -307,7 +308,7 @@ func main() {
 			}
 			continue
 		}
-		lineno := i + 1
+		lineno++
 		cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
 		fmt.Printf("%s\n", cmd)
 		if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
