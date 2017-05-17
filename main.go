@@ -299,9 +299,13 @@ func main() {
 	time.Sleep(time.Second)
 	for i := 0; i < len(cmds); i++ {
 		if cmds[i].IsHost() {
+			// We should handle host command failures gracefully. At the very least,
+			// we'll need to turn off the UV light.
+			// But later. Later.
 			if err := cmds[i].Run(); err != nil {
 				failf("Failed to execute command %+v: %v", cmds[i], err)
 			}
+			continue
 		}
 		lineno := i + 1
 		cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
