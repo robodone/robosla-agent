@@ -8,11 +8,13 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/robodone.com/agent/gcode"
+	"github.com/robodone/agent/gcode"
 	"github.com/samofly/serial"
 )
 
@@ -36,6 +38,31 @@ func logf(format string, args ...interface{}) {
 
 type Cmd struct {
 	Text string
+	Type string
+	Idx  int
+	Dict map[byte]float64
+}
+
+func (cmd *Cmd) IsHost() bool {
+	return cmd.Type == "M" && cmd.Idx == 7820
+}
+
+func (cmd *Cmd) Run() error {
+	if cmd.Type != "M" || cmd.Idx != 7820 {
+		return fmt.Errorf("unsupported host command %s%d", cmd.Type, cmd.Idx)
+	}
+	// Show a new frame on the LCD.
+	frameIdx := int(cmd.Dict['S'])
+	fname := path.Join(path.Dir(*gcodePath), fmt.Sprintf("frame-%06d.png", frameIdx))
+	data, err := exec.Command("killall", "fbi").CombinedOutput()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "killall fbi: %v, %v\n", string(data), err)
+	}
+	data, err = exec.Command("fbi", "-noverbose", "-a", "-T", "1", fname).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to display a frame: %v, %v", string(data), err)
+	}
+	return nil
 }
 
 func parseGcodeCommand(line string) (*Cmd, error) {
@@ -84,6 +111,8 @@ func parseGcodeCommand(line string) (*Cmd, error) {
 	}
 
 	var text string
+	var typ string
+	var idx int
 
 	asm := func(letters ...byte) {
 		var tok []string
@@ -105,6 +134,9 @@ func parseGcodeCommand(line string) (*Cmd, error) {
 		// Filter G commands.
 		// TODO(krasin): make it more rigor.
 		num := int(m['G'] + 0.5)
+		typ = "G"
+		idx = num
+
 		switch num {
 		case 0:
 			// G0. Rapid linear move.
@@ -135,11 +167,15 @@ func parseGcodeCommand(line string) (*Cmd, error) {
 		// Filter M commands.
 		// TODO(krasin): make it more rigor.
 		num := int(m['M'] + 0.5)
+		typ = "M"
+		idx = num
 		switch num {
 		case 106:
 			asm('P', 'S')
 		case 107:
 			asm('P', 'S')
+		case 7820:
+			asm('S')
 		default:
 			return nil, fmt.Errorf("unsupported command M%d", num)
 		}
@@ -147,7 +183,7 @@ func parseGcodeCommand(line string) (*Cmd, error) {
 	if text == "" {
 		return nil, fmt.Errorf("failed to parse line %q: generated text is empty. A parser bug?", line)
 	}
-	return &Cmd{Text: text}, nil
+	return &Cmd{Text: text, Type: typ, Idx: idx, Dict: m}, nil
 }
 
 func loadGcode(fname string) ([]*Cmd, error) {
@@ -262,6 +298,11 @@ func main() {
 
 	time.Sleep(time.Second)
 	for i := 0; i < len(cmds); i++ {
+		if cmds[i].IsHost() {
+			if err := cmds[i].Run(); err != nil {
+				failf("Failed to execute command %+v: %v", cmds[i], err)
+			}
+		}
 		lineno := i + 1
 		cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
 		fmt.Printf("%s\n", cmd)

@@ -4,6 +4,7 @@ M107 ; fan off (UV off on Wanhao D7)
 G28 Z0 F150 ; home
 G0 Z10
 G1 Z0.05 F100
+M7820 S15 ; display frame #15 on the LCD
 M106 ; turn on UV
 G4 P10000 ; wait 10 seconds
 M107 ; turn off UV
