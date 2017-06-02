@@ -19,10 +19,11 @@ import (
 )
 
 var (
-	Version   = "dev"
-	ttyDev    = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
-	baudRate  = flag.Int("rate", 115200, "Baud rate")
-	gcodePath = flag.String("gcode", "", "gcode file to print")
+	Version     = "dev"
+	showVersion = flag.Bool("version", false, "If specified, the binary will show its version and exit")
+	ttyDev      = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
+	baudRate    = flag.Int("rate", 115200, "Baud rate")
+	gcodePath   = flag.String("gcode", "", "gcode file to print")
 )
 
 func failf(format string, args ...interface{}) {
@@ -272,9 +273,14 @@ func waitForOK(reqCh chan *Request, lineno int) {
 }
 
 func main() {
-	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
 	flag.Parse()
+	if *showVersion {
+		// Show version and quit. This is important for autoupdates.
+		fmt.Printf("%s\n", Version)
+		os.Exit(0)
+	}
 
+	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
 	if *ttyDev == "" {
 		failf("--dev not specified")
 	}
