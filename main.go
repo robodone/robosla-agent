@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/robodone/robosla-agent/gcode"
+	"github.com/robodone/robosla-common/pkg/autoupdate"
 	"github.com/samofly/serial"
 )
 
@@ -277,6 +278,15 @@ func main() {
 	if *showVersion {
 		// Show version and quit. This is important for autoupdates.
 		fmt.Printf("%s\n", Version)
+		os.Exit(0)
+	}
+	needsRestart, err := autoupdate.UpdateCurrentBinaryIfNeeded(autoupdate.ProdManifestURL, Version)
+	if err != nil {
+		log.Printf("Autoupdates don't work: %v\n", err)
+		// We will still proceed, as the work is more important than updates.
+	}
+	if needsRestart {
+		log.Printf("Autoupdates installed a new version. Quitting to allow a restart.")
 		os.Exit(0)
 	}
 
