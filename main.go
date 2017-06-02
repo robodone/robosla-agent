@@ -14,17 +14,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robodone/robosla-agent/gcode"
 	"github.com/robodone/robosla-common/pkg/autoupdate"
-	"github.com/samofly/serial"
 )
 
 var (
 	Version     = "dev"
 	showVersion = flag.Bool("version", false, "If specified, the binary will show its version and exit")
-	ttyDev      = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
-	baudRate    = flag.Int("rate", 115200, "Baud rate")
-	gcodePath   = flag.String("gcode", "", "gcode file to print")
+	//ttyDev      = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
+	//baudRate    = flag.Int("rate", 115200, "Baud rate")
+	//gcodePath   = flag.String("gcode", "", "gcode file to print")
 )
 
 func failf(format string, args ...interface{}) {
@@ -50,13 +48,13 @@ func (cmd *Cmd) IsHost() bool {
 	return cmd.Type == "M" && cmd.Idx == 7820
 }
 
-func (cmd *Cmd) Run() error {
+func (cmd *Cmd) Run(gcodePath string) error {
 	if cmd.Type != "M" || cmd.Idx != 7820 {
 		return fmt.Errorf("unsupported host command %s%d", cmd.Type, cmd.Idx)
 	}
 	// Show a new frame on the LCD.
 	frameIdx := int(cmd.Dict['S'])
-	fname := path.Join(path.Dir(*gcodePath), fmt.Sprintf("frame-%06d.png", frameIdx))
+	fname := path.Join(path.Dir(gcodePath), fmt.Sprintf("frame-%06d.png", frameIdx))
 	data, err := exec.Command("killall", "fbi").CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "killall fbi: %v, %v\n", string(data), err)
@@ -290,48 +288,53 @@ func main() {
 		os.Exit(0)
 	}
 
-	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
-	if *ttyDev == "" {
-		failf("--dev not specified")
+	for {
+		log.Printf("Not doing anything. Idling...")
+		time.Sleep(time.Minute)
 	}
-	if *gcodePath == "" {
-		failf("--gcode not specified")
-	}
-	conn, err := serial.Open(*ttyDev, *baudRate)
-	if err != nil {
-		failf("Could not open serial port %s at %d bps. Error: %v", *ttyDev, *baudRate, err)
-	}
-	defer conn.Close()
-	logf("Opened %s at %d bps.", *ttyDev, *baudRate)
+	/*	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
+		if *ttyDev == "" {
+			failf("--dev not specified")
+		}
+		if *gcodePath == "" {
+			failf("--gcode not specified")
+		}
+		conn, err := serial.Open(*ttyDev, *baudRate)
+		if err != nil {
+			failf("Could not open serial port %s at %d bps. Error: %v", *ttyDev, *baudRate, err)
+		}
+		defer conn.Close()
+		logf("Opened %s at %d bps.", *ttyDev, *baudRate)
 
-	cmds, err := loadGcode(*gcodePath)
-	if err != nil {
-		failf("Could not load gcode from %s: %v", *gcodePath, err)
-	}
-	logf("Loaded %d gcode commands from %s.", len(cmds), *gcodePath)
+		cmds, err := loadGcode(*gcodePath)
+		if err != nil {
+			failf("Could not load gcode from %s: %v", *gcodePath, err)
+		}
+		logf("Loaded %d gcode commands from %s.", len(cmds), *gcodePath)
 
-	reqCh := make(chan *Request)
-	go handleTraffic(reqCh)
-	go readFromDevice(conn, reqCh)
+		reqCh := make(chan *Request)
+		go handleTraffic(reqCh)
+		go readFromDevice(conn, reqCh)
 
-	time.Sleep(time.Second)
-	var lineno int
-	for i := 0; i < len(cmds); i++ {
-		if cmds[i].IsHost() {
-			// We should handle host command failures gracefully. At the very least,
-			// we'll need to turn off the UV light.
-			// But later. Later.
-			if err := cmds[i].Run(); err != nil {
-				failf("Failed to execute command %+v: %v", cmds[i], err)
+		time.Sleep(time.Second)
+		var lineno int
+		for i := 0; i < len(cmds); i++ {
+			if cmds[i].IsHost() {
+				// We should handle host command failures gracefully. At the very least,
+				// we'll need to turn off the UV light.
+				// But later. Later.
+				if err := cmds[i].Run(); err != nil {
+					failf("Failed to execute command %+v: %v", cmds[i], err)
+				}
+				continue
 			}
-			continue
+			lineno++
+			cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
+			fmt.Printf("%s\n", cmd)
+			if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
+				failf("Writing to the serial port: %v", err)
+			}
+			waitForOK(reqCh, lineno)
 		}
-		lineno++
-		cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
-		fmt.Printf("%s\n", cmd)
-		if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
-			failf("Writing to the serial port: %v", err)
-		}
-		waitForOK(reqCh, lineno)
-	}
+	*/
 }
