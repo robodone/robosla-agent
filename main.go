@@ -19,6 +19,7 @@ import (
 )
 
 var (
+	Version   = "dev"
 	ttyDev    = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
 	baudRate  = flag.Int("rate", 115200, "Baud rate")
 	gcodePath = flag.String("gcode", "", "gcode file to print")
@@ -271,6 +272,7 @@ func waitForOK(reqCh chan *Request, lineno int) {
 }
 
 func main() {
+	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
 	flag.Parse()
 
 	if *ttyDev == "" {

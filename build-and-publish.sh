@@ -16,8 +16,9 @@ readonly RELEASE="$(date +%Y-%m-%d)-$1"
 echo "Making a release ${RELEASE}"
 
 echo "Building from source ..."
-GOARCH=amd64 go get github.com/robodone/robosla-agent
-GOARCH=arm GOARM=7 go get github.com/robodone/robosla-agent
+rm -f ~/bin/robosla-agent ~/bin/linux_arm/robosla-agent
+GOARCH=amd64 go get -ldflags "-X main.Version=$RELEASE" github.com/robodone/robosla-agent
+GOARCH=arm GOARM=7 go get -ldflags "-X main.Version=$RELEASE" github.com/robodone/robosla-agent
 
 echo "Patching robosla-agent.json manifest ..."
 cp -f robosla-agent.json /tmp/robosla-agent.json

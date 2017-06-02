@@ -1,4 +1,5 @@
 {
+    "version": "RELEASE_NAME",
     "arm": "https://storage.googleapis.com/robosla-agent/RELEASE_NAME/arm/robosla-agent",
     "amd64": "https://storage.googleapis.com/robosla-agent/RELEASE_NAME/amd64/robosla-agent"
 }
