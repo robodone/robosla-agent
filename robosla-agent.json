@@ -1,0 +1,4 @@
+{
+    "arm": "https://storage.googleapis.com/robosla-agent/RELEASE_NAME/arm/agent",
+    "amd64": "https://storage.googleapis.com/robosla-agent/RELEASE_NAME/amd64/agent"
+}
