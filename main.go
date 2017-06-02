@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robodone/agent/gcode"
+	"github.com/robodone/robosla-agent/gcode"
 	"github.com/samofly/serial"
 )
 
