@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,11 +17,14 @@ import (
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
+	"github.com/robodone/robosla-common/pkg/device_api"
+	"github.com/robodone/robosla-common/pkg/syncws"
 )
 
 var (
 	Version     = "dev"
 	showVersion = flag.Bool("version", false, "If specified, the binary will show its version and exit")
+	apiServer   = flag.String("api_server", "test1.robosla.com", "Address of the API server")
 	//ttyDev      = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
 	//baudRate    = flag.Int("rate", 115200, "Baud rate")
 	//gcodePath   = flag.String("gcode", "", "gcode file to print")
@@ -271,6 +276,30 @@ func waitForOK(reqCh chan *Request, lineno int) {
 	<-ackCh
 }
 
+func readUserCookie() (string, error) {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get the path to the current executable: %v", err)
+	}
+	data, err := ioutil.ReadFile(path.Join(path.Dir(execPath), "user.json"))
+	if err != nil {
+		return "", err
+	}
+	var m map[string]interface{}
+	if err = json.Unmarshal(data, &m); err != nil {
+		return "", fmt.Errorf("failed to parse user.json: %v", err)
+	}
+	val, ok := m["cookie"]
+	if !ok {
+		return "", errors.New("no cookie in user.json")
+	}
+	cookie, ok := val.(string)
+	if !ok {
+		return "", errors.New("invalid user.json: cookie is not a string")
+	}
+	return cookie, nil
+}
+
 func main() {
 	flag.Parse()
 	if *showVersion {
@@ -281,8 +310,38 @@ func main() {
 	go autoupdate.Run(autoupdate.ProdManifestURL, Version, 2*time.Minute, time.Hour)
 
 	for {
-		log.Printf("Not doing anything. Idling...")
-		time.Sleep(time.Minute)
+		var sock *syncws.Socket
+		var err error
+		for {
+			sock, err = device_api.Connect(*apiServer)
+			if err == nil {
+				break
+			}
+			log.Printf("Failed to connect to the API server: %v. Will try again in a minute.", err)
+			time.Sleep(time.Minute)
+		}
+		log.Printf("Connected to %s", *apiServer)
+		userCookie, err := readUserCookie()
+		if err != nil {
+			log.Fatalf("Unable to read user cookie: %v", err)
+		}
+		// TODO(krasin): send a proper machine cookie
+		resp := []byte(fmt.Sprintf(`{"cmd":"register-device","cookie":"%s"}`, userCookie))
+		if err := sock.WriteMessage(resp); err != nil {
+			log.Printf("Failed to send a message to the server: %v. Reconnecting ...", err)
+			sock.Close()
+			continue
+		}
+		for {
+			log.Printf("Listening for server messages ...")
+			p, err := sock.ReadMessage()
+			if err != nil {
+				log.Printf("Error while reading a message: %v. Reconnecting to the API server ...", err)
+				sock.Close()
+				break
+			}
+			log.Printf("Server msg: %s", string(p))
+		}
 	}
 	/*	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
 		if *ttyDev == "" {
