@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
 	"github.com/robodone/robosla-common/pkg/device_api"
-	"github.com/robodone/robosla-common/pkg/syncws"
 )
 
 var (
@@ -276,28 +274,74 @@ func waitForOK(reqCh chan *Request, lineno int) {
 	<-ackCh
 }
 
-func readUserCookie() (string, error) {
+func getUserJsonPath() string {
 	execPath, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("failed to get the path to the current executable: %v", err)
+		log.Fatalf("failed to get the path to the current executable: %v", err)
 	}
-	data, err := ioutil.ReadFile(path.Join(path.Dir(execPath), "user.json"))
+	return path.Join(path.Dir(execPath), "user.json")
+}
+
+func getDeviceJsonPath() string {
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Fatalf("failed to get the path to the current executable: %v", err)
+	}
+	return path.Join(path.Dir(execPath), "device.json")
+}
+
+func readCookie(fname string) (string, error) {
+	data, err := ioutil.ReadFile(fname)
 	if err != nil {
 		return "", err
 	}
 	var m map[string]interface{}
 	if err = json.Unmarshal(data, &m); err != nil {
-		return "", fmt.Errorf("failed to parse user.json: %v", err)
+		return "", fmt.Errorf("failed to parse json: %v", err)
 	}
 	val, ok := m["cookie"]
 	if !ok {
-		return "", errors.New("no cookie in user.json")
+		return "", fmt.Errorf("no cookie in %s", fname)
 	}
 	cookie, ok := val.(string)
 	if !ok {
-		return "", errors.New("invalid user.json: cookie is not a string")
+		return "", fmt.Errorf("invalid %s: cookie is not a string", fname)
 	}
 	return cookie, nil
+}
+
+func readUserCookie() (string, error) {
+	return readCookie(getUserJsonPath())
+}
+
+func readDeviceCookie() (string, error) {
+	return readCookie(getDeviceJsonPath())
+}
+
+func saveDeviceCookie(cookie string) error {
+	m := make(map[string]interface{})
+	m["cookie"] = cookie
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(getDeviceJsonPath(), data, 0644)
+}
+
+func isFirstRun() (bool, error) {
+	// In the first run, we have user.json, but not device.json near the binary.
+	if _, err := os.Stat(getUserJsonPath()); err != nil {
+		return false, fmt.Errorf("failed to access user.json: %v", err)
+	}
+	_, err := os.Stat(getDeviceJsonPath())
+	if err == nil {
+		// This is not the first run, as we have already generated the device cookie.
+		return false, nil
+	}
+	if os.IsNotExist(err) {
+		return true, nil
+	}
+	return false, err
 }
 
 func main() {
@@ -309,11 +353,12 @@ func main() {
 	}
 	go autoupdate.Run(autoupdate.ProdManifestURL, Version, 2*time.Minute, time.Hour)
 
+	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
 	for {
-		var sock *syncws.Socket
+		var conn device_api.Conn
 		var err error
 		for {
-			sock, err = device_api.Connect(*apiServer)
+			conn, err = device_api.ConnectWS(*apiServer)
 			if err == nil {
 				break
 			}
@@ -321,29 +366,41 @@ func main() {
 			time.Sleep(time.Minute)
 		}
 		log.Printf("Connected to %s", *apiServer)
-		userCookie, err := readUserCookie()
+		client := device_api.NewClient(conn)
+		firstRun, err := isFirstRun()
 		if err != nil {
-			log.Fatalf("Unable to read user cookie: %v", err)
+			log.Fatalf("isFirstRun: %v", err)
 		}
-		// TODO(krasin): send a proper machine cookie
-		resp := []byte(fmt.Sprintf(`{"cmd":"register-device","cookie":"%s"}`, userCookie))
-		if err := sock.WriteMessage(resp); err != nil {
-			log.Printf("Failed to send a message to the server: %v. Reconnecting ...", err)
-			sock.Close()
-			continue
-		}
-		for {
-			log.Printf("Listening for server messages ...")
-			p, err := sock.ReadMessage()
+		if firstRun {
+			userCookie, err := readUserCookie()
 			if err != nil {
-				log.Printf("Error while reading a message: %v. Reconnecting to the API server ...", err)
-				sock.Close()
-				break
+				log.Fatalf("Unable to read user cookie: %v", err)
 			}
-			log.Printf("Server msg: %s", string(p))
+			deviceCookie, err := client.RegisterDevice(userCookie)
+			if err != nil {
+				log.Fatalf("Failed to register the current device: %v", err)
+			}
+			if err := saveDeviceCookie(deviceCookie); err != nil {
+				log.Fatalf("Failed to save device.json: %v", err)
+			}
 		}
+		deviceCookie, err := readDeviceCookie()
+		if err != nil {
+			log.Fatalf("Faield to read device.json: %v", err)
+		}
+		deviceName, err := client.Hello(deviceCookie)
+		if err != nil {
+			log.Fatalf("Hello: %v", err)
+		}
+		log.Printf("deviceName: %s\n", deviceName)
+		sub, err := client.SubString("never/happen")
+		if err != nil {
+			log.Fatalf("Failed to subscribe: %v", err)
+		}
+		// It will return when an underlying connection is closed.
+		<-sub.C()
 	}
-	/*	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
+	/*
 		if *ttyDev == "" {
 			failf("--dev not specified")
 		}
