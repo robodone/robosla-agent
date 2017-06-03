@@ -278,15 +278,7 @@ func main() {
 		fmt.Printf("%s\n", Version)
 		os.Exit(0)
 	}
-	needsRestart, err := autoupdate.UpdateCurrentBinaryIfNeeded(autoupdate.ProdManifestURL, Version)
-	if err != nil {
-		log.Printf("Autoupdates don't work: %v\n", err)
-		// We will still proceed, as the work is more important than updates.
-	}
-	if needsRestart {
-		log.Printf("Autoupdates installed a new version. Quitting to allow a restart.")
-		os.Exit(0)
-	}
+	go autoupdate.Run(autoupdate.ProdManifestURL, Version, 2*time.Minute, time.Hour)
 
 	for {
 		log.Printf("Not doing anything. Idling...")
