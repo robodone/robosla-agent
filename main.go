@@ -357,8 +357,11 @@ func main() {
 	up := NewUplink()
 	go up.Run()
 
+	cnt := 0
 	for {
-		up.NotifyTerminalOutput("Believe or not, but this is an output from your 3d printer\n")
+		cnt++
+		up.NotifyTerminalOutput(fmt.Sprintf(
+			"%d. Believe or not, but this is an output from your 3d printer.\n", cnt))
 		time.Sleep(2 * time.Second)
 	}
 	/*
