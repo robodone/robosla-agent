@@ -354,7 +354,13 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
 
-	RunUplink()
+	up := NewUplink()
+	go up.Run()
+
+	for {
+		up.NotifyTerminalOutput("Believe or not, but this is an output from your 3d printer\n")
+		time.Sleep(2 * time.Second)
+	}
 	/*
 		if *ttyDev == "" {
 			failf("--dev not specified")
