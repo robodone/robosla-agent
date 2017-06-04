@@ -399,6 +399,9 @@ func main() {
 		}
 		// It will return when an underlying connection is closed.
 		<-sub.C()
+
+		// Avoid immediate reconnects.
+		time.Sleep(5 * time.Second)
 	}
 	/*
 		if *ttyDev == "" {
