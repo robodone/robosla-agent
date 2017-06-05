@@ -112,7 +112,6 @@ func (up *Uplink) WaitForConnection() {
 
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
-	format += "\n"
 	logf(format, args...)
 	up.Notify(fmt.Sprintf(format, args...))
 }
