@@ -10,7 +10,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
 )
@@ -243,34 +242,10 @@ func main() {
 	down := NewDownlink(up, *ttyDev, *baudRate)
 	go down.Run()
 
-	cmds, err := loadGcode(*gcodePath)
-	if err != nil {
-		failf("Could not load gcode from %s: %v", *gcodePath, err)
-	}
-	logf("Loaded %d gcode commands from %s.", len(cmds), *gcodePath)
-
 	exe := NewExecutor(up, down)
 	go exe.Run()
-
-	down.WaitForConnection()
-	// Wait to allow the downlink to read all pending messages.
-	time.Sleep(time.Second)
-
-	for i := 0; i < len(cmds); i++ {
-		if cmds[i].IsHost() {
-			// We should handle host command failures gracefully. At the very least,
-			// we'll need to turn off the UV light.
-			// But later. Later.
-			if err := cmds[i].Run(); err != nil {
-				failf("Failed to execute command %+v: %v", cmds[i], err)
-			}
-			continue
-		}
-		for {
-			if err := down.WriteAndWaitForOK(cmds[i].Text); err == nil {
-				break
-			}
-			down.WaitForConnection()
-		}
+	if err := exe.ExecuteGcode(*gcodePath); err != nil {
+		up.logf("Failed to execute gcode: %v", err)
+		os.Exit(1)
 	}
 }
