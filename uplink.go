@@ -97,3 +97,9 @@ func (up *Uplink) NotifyTerminalOutput(out string) {
 		log.Printf("Failed to send terminal output: %v", err)
 	}
 }
+
+func (up *Uplink) WaitForConnection() {
+	for up.getClient() == nil {
+		time.Sleep(time.Second)
+	}
+}

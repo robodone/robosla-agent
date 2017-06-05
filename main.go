@@ -16,6 +16,14 @@ import (
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
+	"github.com/samofly/serial"
+)
+
+const (
+	IOErrorReqType   = "I/O Error"
+	OKReqType        = "OK"
+	BadOKReqType     = "BadOK"
+	WaitForOKReqType = "WaitForOK"
 )
 
 var (
@@ -218,6 +226,7 @@ func loadGcode(fname string) ([]*Cmd, error) {
 
 type Request struct {
 	Type   string
+	Text   string
 	LineNo int
 	AckCh  *chan bool
 }
@@ -227,13 +236,13 @@ func handleTraffic(reqCh chan *Request) {
 	waits := make(map[int]*chan bool)
 	for req := range reqCh {
 		switch req.Type {
-		case "OK":
+		case OKReqType:
 			oks[req.LineNo] = true
 			if ch, ok := waits[req.LineNo]; ok {
 				*ch <- true
 				delete(waits, req.LineNo)
 			}
-		case "WaitForOK":
+		case WaitForOKReqType:
 			if oks[req.LineNo] {
 				*req.AckCh <- true
 				continue
@@ -253,23 +262,39 @@ func readFromDevice(r io.Reader, reqCh chan *Request) {
 	in := bufio.NewScanner(r)
 	for in.Scan() {
 		txt := strings.TrimSpace(in.Text())
+		// Two supported formats:
+		// ok 123
+		// ok N123 <stuff>
 		if strings.HasPrefix(txt, "ok ") {
-			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
-			if err != nil {
-				failf("Failed to parse a line number from an ok response %q: %v", txt, err)
+			linenoStr := txt[3:]
+			linenoStr = strings.TrimSpace(linenoStr)
+			// "123" or "N123 <stuff>". Now, remove the stuff, if any
+			spidx := strings.Index(linenoStr, " ")
+			if spidx > 0 {
+				linenoStr = linenoStr[:spidx]
 			}
-			reqCh <- &Request{Type: "OK", LineNo: int(lineno)}
+			// "123" or "N123"
+			if strings.HasPrefix(linenoStr, "N") {
+				linenoStr = linenoStr[1:]
+			}
+			// "123"
+			lineno, err := strconv.ParseUint(linenoStr, 10, 64)
+			if err != nil {
+				reqCh <- &Request{Type: BadOKReqType, Text: txt}
+			}
+			reqCh <- &Request{Type: OKReqType, LineNo: int(lineno), Text: txt}
+			continue
 		}
 		fmt.Printf("%s\n", txt)
 	}
 	if err := in.Err(); err != nil {
-		failf("readFromDevice: %v", err)
+		reqCh <- &Request{Type: IOErrorReqType, Text: fmt.Sprintf("readFromDevice: %v", err)}
 	}
 }
 
 func waitForOK(reqCh chan *Request, lineno int) {
 	ackCh := make(chan bool)
-	reqCh <- &Request{Type: "WaitForOK", LineNo: lineno, AckCh: &ackCh}
+	reqCh <- &Request{Type: WaitForOKReqType, LineNo: lineno, AckCh: &ackCh}
 	<-ackCh
 }
 
@@ -357,13 +382,48 @@ func main() {
 	up := NewUplink()
 	go up.Run()
 
-	cnt := 0
-	for {
-		cnt++
-		up.NotifyTerminalOutput(fmt.Sprintf(
-			"%d. Believe or not, but this is an output from your 3d printer.\n", cnt))
-		time.Sleep(2 * time.Second)
+	logUpf := func(format string, args ...interface{}) {
+		if !strings.HasSuffix(format, "\n") {
+			format += "\n"
+		}
+		logf(format, args...)
+		up.NotifyTerminalOutput(fmt.Sprintf(format, args...))
 	}
+
+	for {
+		up.WaitForConnection()
+		// 1. Connect.
+		ttyDev := "/dev/ttyACM0"
+		baudRate := 115200
+		conn, err := serial.Open(ttyDev, baudRate)
+		if err != nil {
+			logUpf("Could not open serial port %s at %d bps. Error: %v", ttyDev, baudRate, err)
+			// Avoid immediate reconnects.
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		defer conn.Close()
+		logUpf("Opened %s at %d bps.", ttyDev, baudRate)
+		// TODO(krasin): don't send M105 to the device; it's only needed for debug purposes.
+		fmt.Fprintf(conn, "M105\n")
+		reqCh := make(chan *Request)
+		go readFromDevice(conn, reqCh)
+		for req := range reqCh {
+			logUpf("%s: %s", req.Type, req.Text)
+			if req.Type == IOErrorReqType {
+				break
+			}
+		}
+		// Avoid immediate reconnects
+		time.Sleep(10 * time.Second)
+	}
+	/*	cnt := 0
+		for {
+			cnt++
+			up.NotifyTerminalOutput(fmt.Sprintf(
+				"%d. Believe or not, but this is an output from your 3d printer.\n", cnt))
+			time.Sleep(2 * time.Second)
+		}*/
 	/*
 		if *ttyDev == "" {
 			failf("--dev not specified")
