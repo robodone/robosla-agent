@@ -309,6 +309,9 @@ func main() {
 	}
 	logf("Loaded %d gcode commands from %s.", len(cmds), *gcodePath)
 
+	exe := NewExecutor(up, down)
+	go exe.Run()
+
 	conn := down.WaitForConnection()
 	reqCh := make(chan *Request)
 	go handleTraffic(reqCh)
