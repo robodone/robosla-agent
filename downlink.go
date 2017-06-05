@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,4 +84,61 @@ func (dl *Downlink) Write(cmd string) (err error) {
 		dl.conn = nil
 	}
 	return
+}
+
+type Request struct {
+	Type   string
+	LineNo int
+	AckCh  *chan bool
+}
+
+func handleTraffic(reqCh chan *Request) {
+	oks := make(map[int]bool)
+	waits := make(map[int]*chan bool)
+	for req := range reqCh {
+		switch req.Type {
+		case "OK":
+			oks[req.LineNo] = true
+			if ch, ok := waits[req.LineNo]; ok {
+				*ch <- true
+				delete(waits, req.LineNo)
+			}
+		case "WaitForOK":
+			if oks[req.LineNo] {
+				*req.AckCh <- true
+				continue
+			}
+			if _, ok := waits[req.LineNo]; ok {
+				failf("Double wait for line %d", req.LineNo)
+			}
+			waits[req.LineNo] = req.AckCh
+
+		default:
+			failf("Unknown request type: %s", req.Type)
+		}
+	}
+}
+
+func readFromDevice(r io.Reader, reqCh chan *Request) {
+	in := bufio.NewScanner(r)
+	for in.Scan() {
+		txt := strings.TrimSpace(in.Text())
+		if strings.HasPrefix(txt, "ok ") {
+			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
+			if err != nil {
+				failf("Failed to parse a line number from an ok response %q: %v", txt, err)
+			}
+			reqCh <- &Request{Type: "OK", LineNo: int(lineno)}
+		}
+		fmt.Printf("%s\n", txt)
+	}
+	if err := in.Err(); err != nil {
+		failf("readFromDevice: %v", err)
+	}
+}
+
+func waitForOK(reqCh chan *Request, lineno int) {
+	ackCh := make(chan bool)
+	reqCh <- &Request{Type: "WaitForOK", LineNo: lineno, AckCh: &ackCh}
+	<-ackCh
 }
