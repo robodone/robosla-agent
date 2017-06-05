@@ -16,7 +16,6 @@ import (
 
 	"github.com/robodone/robosla-agent/gcode"
 	"github.com/robodone/robosla-common/pkg/autoupdate"
-	"github.com/samofly/serial"
 )
 
 var (
@@ -301,12 +300,8 @@ func main() {
 	up := NewUplink(*apiServer)
 	go up.Run()
 
-	conn, err := serial.Open(*ttyDev, *baudRate)
-	if err != nil {
-		failf("Could not open serial port %s at %d bps. Error: %v", *ttyDev, *baudRate, err)
-	}
-	defer conn.Close()
-	logf("Opened %s at %d bps.", *ttyDev, *baudRate)
+	down := NewDownlink(up, *ttyDev, *baudRate)
+	go down.Run()
 
 	cmds, err := loadGcode(*gcodePath)
 	if err != nil {
@@ -314,11 +309,13 @@ func main() {
 	}
 	logf("Loaded %d gcode commands from %s.", len(cmds), *gcodePath)
 
+	conn := down.WaitForConnection()
 	reqCh := make(chan *Request)
 	go handleTraffic(reqCh)
 	go readFromDevice(conn, reqCh)
 
 	time.Sleep(time.Second)
+
 	var lineno int
 	for i := 0; i < len(cmds); i++ {
 		if cmds[i].IsHost() {
@@ -332,9 +329,11 @@ func main() {
 		}
 		lineno++
 		cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
-		fmt.Printf("%s\n", cmd)
-		if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
-			failf("Writing to the serial port: %v", err)
+		for {
+			if err := down.Write(fmt.Sprintf("%s\n", cmd)); err == nil {
+				break
+			}
+			down.WaitForConnection()
 		}
 		waitForOK(reqCh, lineno)
 	}
