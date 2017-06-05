@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/robodone/robosla-agent/gcode"
 	"github.com/samofly/serial"
 )
 
@@ -22,10 +23,12 @@ type Downlink struct {
 	mu       sync.Mutex
 	conn     io.ReadWriteCloser
 	closed   sync.WaitGroup
+	reqCh    chan *Request
+	lineno   int
 }
 
 func NewDownlink(up *Uplink, ttyDev string, baudRate int) *Downlink {
-	return &Downlink{up: up, ttyDev: ttyDev, baudRate: baudRate}
+	return &Downlink{up: up, ttyDev: ttyDev, baudRate: baudRate, reqCh: make(chan *Request)}
 }
 
 func (dl *Downlink) getConn() io.ReadWriteCloser {
@@ -35,6 +38,7 @@ func (dl *Downlink) getConn() io.ReadWriteCloser {
 }
 
 func (dl *Downlink) Run() error {
+	go dl.handleTraffic()
 	for {
 		dl.up.WaitForConnection()
 		conn, err := serial.Open(dl.ttyDev, dl.baudRate)
@@ -49,35 +53,32 @@ func (dl *Downlink) Run() error {
 		fmt.Fprintf(conn, "M105\n")
 		dl.mu.Lock()
 		dl.conn = conn
+		dl.lineno = 0
 		dl.closed.Add(1)
 		dl.mu.Unlock()
+		go dl.readFromDevice(conn)
 
 		// Wait until it's closed. Then we will try to reconnect.
 		dl.closed.Wait()
 	}
 }
 
-func (dl *Downlink) WaitForConnection() io.ReadWriteCloser {
+func (dl *Downlink) WaitForConnection() {
 	for {
 		if conn := dl.getConn(); conn != nil {
-			return conn
+			return
 		}
 		time.Sleep(time.Second)
 	}
 }
 
-func (dl *Downlink) Write(cmd string) (err error) {
+func (dl *Downlink) writeInternal(cmd string) (err error) {
 	dl.up.logf("> %s", cmd)
 	defer func() {
 		if err != nil {
 			dl.up.logf("Downlink write error: %v", err)
 		}
 	}()
-	dl.mu.Lock()
-	defer dl.mu.Unlock()
-	if dl.conn == nil {
-		return ErrNoDownlinkConnection
-	}
 	_, err = dl.conn.Write([]byte(cmd))
 	if err != nil {
 		dl.closed.Done()
@@ -86,16 +87,39 @@ func (dl *Downlink) Write(cmd string) (err error) {
 	return
 }
 
+func (dl *Downlink) addLinenoAndWrite(cmd string) (lineno int, err error) {
+	dl.mu.Lock()
+	defer dl.mu.Unlock()
+	if dl.conn == nil {
+		return 0, ErrNoDownlinkConnection
+	}
+	dl.lineno++
+	cmd = gcode.AddLineAndHash(dl.lineno, cmd)
+	if err = dl.writeInternal(fmt.Sprintf("%s\n", cmd)); err != nil {
+		return 0, err
+	}
+	return dl.lineno, nil
+}
+
+func (dl *Downlink) WriteAndWaitForOK(cmd string) error {
+	lineno, err := dl.addLinenoAndWrite(cmd)
+	if err != nil {
+		return err
+	}
+	waitForOK(dl.reqCh, lineno)
+	return nil
+}
+
 type Request struct {
 	Type   string
 	LineNo int
 	AckCh  *chan bool
 }
 
-func handleTraffic(reqCh chan *Request) {
+func (dl *Downlink) handleTraffic() {
 	oks := make(map[int]bool)
 	waits := make(map[int]*chan bool)
-	for req := range reqCh {
+	for req := range dl.reqCh {
 		switch req.Type {
 		case "OK":
 			oks[req.LineNo] = true
@@ -119,21 +143,22 @@ func handleTraffic(reqCh chan *Request) {
 	}
 }
 
-func readFromDevice(r io.Reader, reqCh chan *Request) {
-	in := bufio.NewScanner(r)
+func (dl *Downlink) readFromDevice(conn io.Reader) {
+	in := bufio.NewScanner(conn)
 	for in.Scan() {
 		txt := strings.TrimSpace(in.Text())
+		dl.up.logf("%s\n", txt)
 		if strings.HasPrefix(txt, "ok ") {
 			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
 			if err != nil {
-				failf("Failed to parse a line number from an ok response %q: %v", txt, err)
+				dl.up.logf("Failed to parse a line number from an ok response %q: %v", txt, err)
+				continue
 			}
-			reqCh <- &Request{Type: "OK", LineNo: int(lineno)}
+			dl.reqCh <- &Request{Type: "OK", LineNo: int(lineno)}
 		}
-		fmt.Printf("%s\n", txt)
 	}
 	if err := in.Err(); err != nil {
-		failf("readFromDevice: %v", err)
+		dl.up.logf("readFromDevice: %v", err)
 	}
 }
 

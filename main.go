@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robodone/robosla-agent/gcode"
 	"github.com/robodone/robosla-common/pkg/autoupdate"
 )
 
@@ -253,14 +252,10 @@ func main() {
 	exe := NewExecutor(up, down)
 	go exe.Run()
 
-	conn := down.WaitForConnection()
-	reqCh := make(chan *Request)
-	go handleTraffic(reqCh)
-	go readFromDevice(conn, reqCh)
-
+	down.WaitForConnection()
+	// Wait to allow the downlink to read all pending messages.
 	time.Sleep(time.Second)
 
-	var lineno int
 	for i := 0; i < len(cmds); i++ {
 		if cmds[i].IsHost() {
 			// We should handle host command failures gracefully. At the very least,
@@ -271,14 +266,11 @@ func main() {
 			}
 			continue
 		}
-		lineno++
-		cmd := gcode.AddLineAndHash(lineno, cmds[i].Text)
 		for {
-			if err := down.Write(fmt.Sprintf("%s\n", cmd)); err == nil {
+			if err := down.WriteAndWaitForOK(cmds[i].Text); err == nil {
 				break
 			}
 			down.WaitForConnection()
 		}
-		waitForOK(reqCh, lineno)
 	}
 }
