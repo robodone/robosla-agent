@@ -25,6 +25,7 @@ var (
 	ttyDev      = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
 	baudRate    = flag.Int("rate", 115200, "Baud rate")
 	gcodePath   = flag.String("gcode", "", "gcode file to print")
+	apiServer   = flag.String("api_server", "test1.robosla.com", "Address of the API server")
 )
 
 func failf(format string, args ...interface{}) {
@@ -297,6 +298,9 @@ func main() {
 	if *gcodePath == "" {
 		failf("--gcode not specified")
 	}
+	up := NewUplink(*apiServer)
+	go up.Run()
+
 	conn, err := serial.Open(*ttyDev, *baudRate)
 	if err != nil {
 		failf("Could not open serial port %s at %d bps. Error: %v", *ttyDev, *baudRate, err)
