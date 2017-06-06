@@ -79,8 +79,8 @@ func (up *Uplink) Run() {
 		if err != nil {
 			log.Fatalf("Hello: %v", err)
 		}
-		log.Printf("deviceName: %s\n", deviceName)
 		up.setClient(client)
+		up.logf("RoboSLA agent version %s running on printer %s", Version, deviceName)
 		// It will return when an underlying connection is closed.
 		<-client.Stopped()
 	}
