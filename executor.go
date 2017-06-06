@@ -36,7 +36,6 @@ func (exe *Executor) Run() error {
 }
 
 func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
-	exe.up.logf("Received gcode update: %+v", reqJson)
 	var resp device_api.Response
 	if err := json.Unmarshal([]byte(reqJson), &resp); err != nil {
 		exe.up.logf("Failed to parse json with gcode: %v", err)
