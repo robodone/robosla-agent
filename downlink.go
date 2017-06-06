@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,11 +15,11 @@ import (
 	"github.com/samofly/serial"
 )
 
-var ErrNoDownlinkConnection = errors.New("No downlink connection to the device")
+var ErrPrinterDeviceNotFound = errors.New("printer device is not found. May be it's turned off?")
+var ErrNoDownlinkConnection = errors.New("no downlink connection to the device")
 
 type Downlink struct {
 	up       *Uplink
-	ttyDev   string
 	baudRate int
 	mu       sync.Mutex
 	conn     io.ReadWriteCloser
@@ -27,8 +28,8 @@ type Downlink struct {
 	lineno   int
 }
 
-func NewDownlink(up *Uplink, ttyDev string, baudRate int) *Downlink {
-	return &Downlink{up: up, ttyDev: ttyDev, baudRate: baudRate, reqCh: make(chan *Request)}
+func NewDownlink(up *Uplink, baudRate int) *Downlink {
+	return &Downlink{up: up, baudRate: baudRate, reqCh: make(chan *Request)}
 }
 
 func (dl *Downlink) getConn() io.ReadWriteCloser {
@@ -41,14 +42,19 @@ func (dl *Downlink) Run() error {
 	go dl.handleTraffic()
 	for {
 		dl.up.WaitForConnection()
-		conn, err := serial.Open(dl.ttyDev, dl.baudRate)
+		ttyDev, err := findTTYDev()
 		if err != nil {
-			dl.up.logf("Could not open serial port %s at %d bps. Error: %v", dl.ttyDev, dl.baudRate, err)
+			dl.up.logf("Scanning serial devices failed: %s", err)
+			continue
+		}
+		conn, err := serial.Open(ttyDev, dl.baudRate)
+		if err != nil {
+			dl.up.logf("Could not open serial port %s at %d bps. Error: %v", ttyDev, dl.baudRate, err)
 			// Avoid immediate reconnects.
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		dl.up.logf("Opened %s at %d bps.", dl.ttyDev, dl.baudRate)
+		dl.up.logf("Opened %s at %d bps.", ttyDev, dl.baudRate)
 		// TODO(krasin): don't send M105 to the device; it's only needed for debug purposes.
 		fmt.Fprintf(conn, "M105\n")
 		dl.mu.Lock()
@@ -166,4 +172,25 @@ func waitForOK(reqCh chan *Request, lineno int) {
 	ackCh := make(chan bool)
 	reqCh <- &Request{Type: "WaitForOK", LineNo: lineno, AckCh: &ackCh}
 	<-ackCh
+}
+
+// Find tty dev for the printer. As we work in a relatively stable environment,
+// it's going to be either /dev/ttyACM? or /dev/ttyUSB?. The numbers will also likely be low, like 0 or 1.
+// For now, just have a short list and go through it.
+func findTTYDev() (string, error) {
+	for _, ttyDev := range []string{
+		"/dev/ttyACM0",
+		"/dev/ttyACM1",
+		"/dev/ttyACM2",
+		"/dev/ttyUSB0",
+		"/dev/ttyUSB1",
+		"/dev/ttyUSB2",
+	} {
+		_, err := os.Stat(ttyDev)
+		if err == nil {
+			// We have found the device we want.
+			return ttyDev, nil
+		}
+	}
+	return "", ErrPrinterDeviceNotFound
 }

@@ -13,7 +13,6 @@ import (
 var (
 	Version     = "dev"
 	showVersion = flag.Bool("version", false, "If specified, the binary will show its version and exit")
-	ttyDev      = flag.String("dev", "", "Device to connect to the printer, such as /dev/ttyUSB0 or /dev/ttyACM0")
 	baudRate    = flag.Int("rate", 115200, "Baud rate")
 	apiServer   = flag.String("api_server", "test1.robosla.com", "Address of the API server")
 )
@@ -48,13 +47,10 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
-	if *ttyDev == "" {
-		failf("--dev not specified")
-	}
 	up := NewUplink(*apiServer)
 	go up.Run()
 
-	down := NewDownlink(up, *ttyDev, *baudRate)
+	down := NewDownlink(up, *baudRate)
 	go down.Run()
 
 	exe := NewExecutor(up, down)
