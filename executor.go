@@ -1,8 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/robodone/robosla-common/pkg/device_api"
 )
 
 type Executor struct {
@@ -15,8 +19,50 @@ func NewExecutor(up *Uplink, down *Downlink) *Executor {
 }
 
 func (exe *Executor) Run() error {
-	// TODO(krasin): implement
+	sub, err := exe.up.Sub("ts.gcode")
+	if err != nil {
+		return fmt.Errorf("Failed to subscribe to ts.gcode: %v", err)
+	}
+	var lastTS int64
+	for reqJson := range sub.C() {
+		lastTS = exe.processGcodeUpdates(reqJson, lastTS)
+	}
 	return nil
+}
+
+func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
+	exe.up.logf("Received gcode update: %+v", reqJson)
+	var resp device_api.Response
+	if err := json.Unmarshal([]byte(reqJson), &resp); err != nil {
+		exe.up.logf("Failed to parse json with gcode: %v", err)
+		return lastTS
+	}
+	var cmds []string
+	for _, v := range resp.TS.Gcode {
+		if v.TS <= lastTS {
+			continue
+		}
+		cmds = append(cmds, v.Value)
+		lastTS = v.TS
+	}
+	for _, cmd := range cmds {
+		// TODO(krasin): make 'print' less hacky
+		prefix := "print "
+		if strings.HasPrefix(cmd, prefix) {
+			// Print file
+			fname := cmd[len(prefix):]
+			err := exe.ExecuteGcode(fname)
+			if err != nil {
+				exe.up.logf("Failed to execute %q: %v", err)
+				return lastTS
+			}
+		}
+		if err := exe.down.WriteAndWaitForOK(cmd); err != nil {
+			exe.up.logf("Error while sending gcode: %v", err)
+			return lastTS
+		}
+	}
+	return lastTS
 }
 
 func (exe *Executor) ExecuteGcode(path string) error {

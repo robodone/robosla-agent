@@ -8,16 +8,18 @@ import (
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/device_api"
+	"github.com/robodone/robosla-common/pkg/pubsub"
 )
 
 type Uplink struct {
 	apiServerAddr string
+	nd            *pubsub.Node
 	mu            sync.Mutex
 	client        *device_api.Client
 }
 
 func NewUplink(apiServerAddr string) *Uplink {
-	return &Uplink{apiServerAddr: apiServerAddr}
+	return &Uplink{apiServerAddr: apiServerAddr, nd: pubsub.NewNode()}
 }
 
 func (up *Uplink) getClient() *device_api.Client {
@@ -51,7 +53,7 @@ func (up *Uplink) Run() {
 			time.Sleep(time.Minute)
 		}
 		log.Printf("Connected to %s", up.apiServerAddr)
-		client := device_api.NewClient(conn)
+		client := device_api.NewClient(conn, up.nd)
 		firstRun, err := isFirstRun()
 		if err != nil {
 			log.Fatalf("isFirstRun: %v", err)
@@ -79,14 +81,13 @@ func (up *Uplink) Run() {
 		}
 		log.Printf("deviceName: %s\n", deviceName)
 		up.setClient(client)
-		sub, err := client.SubString("never/happen")
-		if err != nil {
-			log.Printf("Failed to subscribe to never/happen: %v", err)
-			continue
-		}
 		// It will return when an underlying connection is closed.
-		<-sub.C()
+		<-client.Stopped()
 	}
+}
+
+func (up *Uplink) Sub(paths ...string) (*pubsub.Sub, error) {
+	return up.nd.Sub(paths...)
 }
 
 // Notify makes best effort to notify about the received terminal output or errors.

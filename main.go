@@ -244,8 +244,9 @@ func main() {
 
 	exe := NewExecutor(up, down)
 	go exe.Run()
-	if err := exe.ExecuteGcode(*gcodePath); err != nil {
+	/*if err := exe.ExecuteGcode(*gcodePath); err != nil {
 		up.logf("Failed to execute gcode: %v", err)
 		os.Exit(1)
-	}
+	}*/
+	select {}
 }
