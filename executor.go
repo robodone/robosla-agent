@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -50,16 +53,35 @@ func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 		lastTS = v.TS
 	}
 	for _, cmd := range cmds {
-		// TODO(krasin): make 'print' less hacky
-		prefix := "print "
-		if strings.HasPrefix(cmd, prefix) {
-			// Print file
-			fname := cmd[len(prefix):]
-			err := exe.ExecuteGcode(fname)
+		cmd = strings.TrimSpace(cmd)
+		parts := strings.SplitN(cmd, " ", 2)
+		verb := parts[0]
+		var arg string
+		if len(parts) > 1 {
+			arg = strings.TrimSpace(parts[1])
+		}
+		switch verb {
+		case "print":
+			err := exe.ExecuteGcode(arg)
 			if err != nil {
-				exe.up.logf("Failed to execute %q: %v", err)
+				exe.up.logf("Failed to execute %q: %v", arg, err)
 				return lastTS
 			}
+			continue
+		case "fetch":
+			err := exe.FetchJob(arg)
+			if err != nil {
+				exe.up.logf("Failed to fetch %q: %v", arg, err)
+				return lastTS
+			}
+			continue
+		case "reboot":
+			err := exe.Reboot()
+			if err != nil {
+				exe.up.logf("Failed to reboot: %v", err)
+				return lastTS
+			}
+			continue
 		}
 		if err := exe.down.WriteAndWaitForOK(cmd); err != nil {
 			exe.up.logf("Error while sending gcode: %v", err)
@@ -70,11 +92,14 @@ func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 }
 
 func (exe *Executor) ExecuteGcode(gcodePath string) error {
+	if !exe.down.Connected() {
+		return errors.New("can't execute gcode: printer not connected")
+	}
 	cmds, err := loadGcode(gcodePath)
 	if err != nil {
-		failf("Could not load gcode from %s: %v", gcodePath, err)
+		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
 	}
-	logf("Loaded %d gcode commands from %s.", len(cmds), gcodePath)
+	exe.up.logf("Loaded %d gcode commands from %s.", len(cmds), gcodePath)
 	exe.down.WaitForConnection()
 	// Wait to allow the downlink to read all pending messages.
 	time.Sleep(time.Second)
@@ -85,7 +110,7 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 			// we'll need to turn off the UV light.
 			// But later. Later.
 			if err := cmds[i].Run(); err != nil {
-				return fmt.Errorf("Failed to execute command %+v: %v", cmds[i], err)
+				return fmt.Errorf("failed to execute command %+v: %v", cmds[i], err)
 			}
 			continue
 		}
@@ -95,6 +120,49 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 			}
 			exe.down.WaitForConnection()
 		}
+	}
+	return nil
+}
+
+func (exe *Executor) FetchJob(jobURL string) error {
+	exe.up.logf("Downloading a job from %s", jobURL)
+	data, err := exe.getURL(jobURL)
+	if err != nil {
+		return fmt.Errorf("failed to fetch a job from %q: %v", jobURL, err)
+	}
+	// Make a best effort to create the dir for jobs.
+	os.MkdirAll("/opt/robodone/jobs", 0755)
+	// Make a best effort to delete old jobs.
+	if err := tryToRemoveOldJobs("/opt/robodone/jobs"); err != nil {
+		exe.up.logf("Failed to remove old jobs: %v. Proceeding, like it didn't happen.", err)
+	}
+	dir, err := ioutil.TempDir("/opt/robodone/jobs", "job")
+	if err != nil {
+		return fmt.Errorf("failed to create a directory for a job: %v", err)
+	}
+	if err := ioutil.WriteFile(path.Join(dir, "job.zip"), data, 0644); err != nil {
+		return fmt.Errorf("failed to write an archive with a job to disk: %v", err)
+	}
+	cmd := exec.Command("unzip", "job.zip")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to unzip the archive with a job: %v\nOutput:\n%s\n", err, string(out))
+	}
+	if err = os.Remove(path.Join(dir, "job.zip")); err != nil {
+		return fmt.Errorf("failed to remove the archive with a job after it's extracted: %v", err)
+	}
+	exe.up.logf("Success. Gcode: %s", path.Join(dir, "job.gcode"))
+	return nil
+}
+
+func (exe *Executor) Reboot() error {
+	exe.up.logf("Rebooting Raspberry Pi...")
+	// Allow the delivery of the message above.
+	time.Sleep(time.Second)
+	data, err := exec.Command("reboot").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to reboot: %v\nOutput:\n%s", err, string(data))
 	}
 	return nil
 }
@@ -125,6 +193,43 @@ func loadGcode(fname string) ([]*Cmd, error) {
 		cmds = append(cmds, cmd)
 	}
 	return cmds, nil
+}
+
+func (exe *Executor) getURL(srcURL string) (res []byte, err error) {
+	// Validate url to make sure no malware is downloaded this way.
+	// Theoretically, we are dealing with secure connections, but
+	// the users are conned very easily. So, no.
+	purl, err := url.Parse(srcURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid url %q: %v", srcURL, err)
+	}
+	purl.RawPath = path.Clean(purl.RawPath)
+	if purl.Hostname() != "storage.googleapis.com" ||
+		!strings.HasPrefix(purl.RawPath, "/robosla-data/") {
+		return nil, errors.New("downloading arbitrary urls is disabled for security reasons. " +
+			"Let us know if you need this functionality by writing at beta@robodone.com")
+	}
+	cleanURL := purl.String()
+
+	start := time.Now()
+	defer func() {
+		if err == nil {
+			exe.up.logf("Download took %.1f seconds", time.Now().Sub(start).Seconds())
+		}
+	}()
+	resp, err := http.Get(cleanURL)
+	if err != nil {
+		return nil, fmt.Errorf("http.Get(%q): %v", cleanURL, err)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read HTTP response: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unexpected HTTP status: %s %d. Want 200.", resp.Status, resp.StatusCode)
+	}
+	return body, nil
 }
 
 func parseGcodeCommand(baseDir, line string) (*Cmd, error) {
@@ -278,4 +383,28 @@ func (cmd *Cmd) Run() error {
 		return fmt.Errorf("failed to display a frame: %v, %v", string(data), err)
 	}
 	return nil
+}
+
+func tryToRemoveOldJobs(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("failed to access the jobs directory %q: %v", dir, err)
+	}
+	defer f.Close()
+	names, err := f.Readdirnames(-1)
+	if err != nil {
+		return fmt.Errorf("failed to list jobs in %q: %v", dir, err)
+	}
+	var firstErr error
+	for _, name := range names {
+		if !strings.HasPrefix(name, "job") {
+			// Some other file; not a job.
+			continue
+		}
+		// Best effort to remove the job and everything inside
+		if err := os.RemoveAll(path.Join(dir, name)); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }

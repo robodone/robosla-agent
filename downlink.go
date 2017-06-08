@@ -38,13 +38,25 @@ func (dl *Downlink) getConn() io.ReadWriteCloser {
 	return dl.conn
 }
 
+func (dl *Downlink) Connected() bool {
+	return dl.getConn() != nil
+}
+
 func (dl *Downlink) Run() error {
 	go dl.handleTraffic()
+	var lastAttempt time.Time
 	for {
 		dl.up.WaitForConnection()
 		ttyDev, err := findTTYDev()
 		if err != nil {
-			dl.up.logf("Scanning serial devices failed: %s", err)
+			now := time.Now()
+			// Avoid log spam
+			if now.Sub(lastAttempt) > 5*time.Minute {
+				lastAttempt = now
+				dl.up.logf("Scanning serial devices failed: %s", err)
+			}
+			// Avoid immediate reconnects
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		conn, err := serial.Open(ttyDev, dl.baudRate)
