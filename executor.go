@@ -203,9 +203,9 @@ func (exe *Executor) getURL(srcURL string) (res []byte, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid url %q: %v", srcURL, err)
 	}
-	purl.RawPath = path.Clean(purl.RawPath)
+	purl.Path = path.Clean(purl.Path)
 	if purl.Hostname() != "storage.googleapis.com" ||
-		!strings.HasPrefix(purl.RawPath, "/robosla-data/") {
+		!strings.HasPrefix(purl.Path, "/robosla-data/") {
 		return nil, errors.New("downloading arbitrary urls is disabled for security reasons. " +
 			"Let us know if you need this functionality by writing at beta@robodone.com")
 	}

@@ -18,6 +18,13 @@ import (
 var ErrPrinterDeviceNotFound = errors.New("printer device is not found. May be it's turned off?")
 var ErrNoDownlinkConnection = errors.New("no downlink connection to the device")
 
+const (
+	OKType        = "OK"
+	WaitForOKType = "WaitForOK"
+	SendType      = "Send"
+	ResendType    = "Resend"
+)
+
 type Downlink struct {
 	up       *Uplink
 	baudRate int
@@ -105,18 +112,24 @@ func (dl *Downlink) writeInternal(cmd string) (err error) {
 	return
 }
 
-func (dl *Downlink) addLinenoAndWrite(cmd string) (lineno int, err error) {
+func (dl *Downlink) takeLineno() (int, error) {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
 	if dl.conn == nil {
 		return 0, ErrNoDownlinkConnection
 	}
 	dl.lineno++
-	cmd = gcode.AddLineAndHash(dl.lineno, cmd)
-	if err = dl.writeInternal(fmt.Sprintf("%s\n", cmd)); err != nil {
-		return 0, err
-	}
 	return dl.lineno, nil
+}
+
+func (dl *Downlink) addLinenoAndWrite(cmd string) (lineno int, err error) {
+	lineno, err = dl.takeLineno()
+	if err != nil {
+		return
+	}
+	cmd = gcode.AddLineAndHash(lineno, cmd)
+	dl.reqCh <- &Request{Type: SendType, Lineno: lineno, Str: cmd}
+	return lineno, nil
 }
 
 func (dl *Downlink) WriteAndWaitForOK(cmd string) error {
@@ -130,33 +143,87 @@ func (dl *Downlink) WriteAndWaitForOK(cmd string) error {
 
 type Request struct {
 	Type   string
-	LineNo int
+	Lineno int
+	Str    string
 	AckCh  *chan bool
 }
 
 func (dl *Downlink) handleTraffic() {
 	oks := make(map[int]bool)
 	waits := make(map[int]*chan bool)
+	hist := make(map[int]string)
+	resends := make(map[int]bool)
+	lastWriteWasAResend := false
+	lastResendLineno := 0
+
+	send := func(lineno int, cmd string, isResend bool) bool {
+		// Check if we had already resent the command. We only try to resend it once.
+		if isResend && resends[lineno] {
+			dl.up.logf("Line %d was already resent. Ignoring the resend request", lineno)
+			return true
+		}
+
+		if err := dl.writeInternal(fmt.Sprintf("%s\n", cmd)); err != nil {
+			dl.up.logf("Failed to write to serial port: %v", err)
+			return false
+		}
+		if isResend {
+			lastWriteWasAResend = true
+			lastResendLineno = lineno
+		} else {
+			lastWriteWasAResend = false
+		}
+		return true
+	}
 	for req := range dl.reqCh {
 		switch req.Type {
-		case "OK":
-			oks[req.LineNo] = true
-			if ch, ok := waits[req.LineNo]; ok {
+		case OKType:
+			oks[req.Lineno] = true
+			delete(hist, req.Lineno)
+			if ch, ok := waits[req.Lineno]; ok {
 				*ch <- true
-				delete(waits, req.LineNo)
+				delete(waits, req.Lineno)
 			}
-		case "WaitForOK":
-			if oks[req.LineNo] {
+		case WaitForOKType:
+			if oks[req.Lineno] {
 				*req.AckCh <- true
 				continue
 			}
-			if _, ok := waits[req.LineNo]; ok {
-				failf("Double wait for line %d", req.LineNo)
+			if _, ok := waits[req.Lineno]; ok {
+				dl.up.logf("Incredible error: double wait for line %d", req.Lineno)
+				continue
 			}
-			waits[req.LineNo] = req.AckCh
+			waits[req.Lineno] = req.AckCh
+		case SendType:
+			if lastWriteWasAResend && lastResendLineno < req.Lineno-1 {
+				// We have a backlog of commands we need to resend.
+				for lineno := lastResendLineno + 1; lineno < req.Lineno; lineno++ {
+					send(lineno, hist[lineno], true)
+				}
+			}
+			if !send(req.Lineno, req.Str, false) {
+				continue
+			}
+			hist[req.Lineno] = req.Str
+		case ResendType:
+			// Tough case: we are requested to resend a line.
+			// Either we have hit the input buffer too much, or had
+			// a geniune transmission error.
 
+			// First, we need to check, if we even remember about this line.
+			cmd, ok := hist[req.Lineno]
+			if !ok {
+				dl.up.logf("Resend for line %d is requested. Either we had never send it, "+
+					"or an OK was already received. Sending M105 to keep it calm.", req.Lineno)
+
+				// Lying that it's not a resend, because the request is really just bogus.
+				send(req.Lineno, "M105", false /*isResend*/)
+				continue
+			}
+			// Resending the command.
+			send(req.Lineno, cmd, true /*isResend*/)
 		default:
-			failf("Unknown request type: %s", req.Type)
+			dl.up.logf("Unknown request type: %s", req.Type)
 		}
 	}
 }
@@ -172,7 +239,19 @@ func (dl *Downlink) readFromDevice(conn io.Reader) {
 				dl.up.logf("Failed to parse a line number from an ok response %q: %v", txt, err)
 				continue
 			}
-			dl.reqCh <- &Request{Type: "OK", LineNo: int(lineno)}
+			dl.reqCh <- &Request{Type: OKType, Lineno: int(lineno)}
+			continue
+		}
+		// Resend:17206
+		if strings.HasPrefix(txt, "Resend:") {
+			rest := strings.TrimSpace(txt[len("Resend:"):])
+			lineno, err := strconv.ParseUint(rest, 10, 64)
+			if err != nil {
+				dl.up.logf("Failed to parse a resend response %q: %v", txt, err)
+				continue
+			}
+			dl.reqCh <- &Request{Type: ResendType, Lineno: int(lineno)}
+			continue
 		}
 	}
 	if err := in.Err(); err != nil {
@@ -182,7 +261,7 @@ func (dl *Downlink) readFromDevice(conn io.Reader) {
 
 func waitForOK(reqCh chan *Request, lineno int) {
 	ackCh := make(chan bool)
-	reqCh <- &Request{Type: "WaitForOK", LineNo: lineno, AckCh: &ackCh}
+	reqCh <- &Request{Type: WaitForOKType, Lineno: lineno, AckCh: &ackCh}
 	<-ackCh
 }
 
