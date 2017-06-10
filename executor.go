@@ -69,10 +69,22 @@ func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			}
 			continue
 		case "fetch":
-			err := exe.FetchJob(arg)
+			localGcodePath, err := exe.FetchJob(arg)
 			if err != nil {
 				exe.up.logf("Failed to fetch %q: %v", arg, err)
 				return lastTS
+			}
+			exe.up.logf("Success. Job fetched into %s", localGcodePath)
+			continue
+		case "fetch-and-print":
+			localGcodePath, err := exe.FetchJob(arg)
+			if err != nil {
+				exe.up.logf("Failed to fetch %q: %v", arg, err)
+				return lastTS
+			}
+			err = exe.ExecuteGcode(localGcodePath)
+			if err != nil {
+				exe.up.logf("Failed to execute %q: %v", arg, err)
 			}
 			continue
 		case "reboot":
@@ -124,11 +136,11 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 	return nil
 }
 
-func (exe *Executor) FetchJob(jobURL string) error {
+func (exe *Executor) FetchJob(jobURL string) (gcodePath string, err error) {
 	exe.up.logf("Downloading a job from %s", jobURL)
 	data, err := exe.getURL(jobURL)
 	if err != nil {
-		return fmt.Errorf("failed to fetch a job from %q: %v", jobURL, err)
+		return "", fmt.Errorf("failed to fetch a job from %q: %v", jobURL, err)
 	}
 	// Make a best effort to create the dir for jobs.
 	os.MkdirAll("/opt/robodone/jobs", 0755)
@@ -138,22 +150,22 @@ func (exe *Executor) FetchJob(jobURL string) error {
 	}
 	dir, err := ioutil.TempDir("/opt/robodone/jobs", "job")
 	if err != nil {
-		return fmt.Errorf("failed to create a directory for a job: %v", err)
+		return "", fmt.Errorf("failed to create a directory for a job: %v", err)
 	}
 	if err := ioutil.WriteFile(path.Join(dir, "job.zip"), data, 0644); err != nil {
-		return fmt.Errorf("failed to write an archive with a job to disk: %v", err)
+		return "", fmt.Errorf("failed to write an archive with a job to disk: %v", err)
 	}
 	cmd := exec.Command("unzip", "job.zip")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to unzip the archive with a job: %v\nOutput:\n%s\n", err, string(out))
+		return "", fmt.Errorf("failed to unzip the archive with a job: %v\nOutput:\n%s\n", err, string(out))
 	}
 	if err = os.Remove(path.Join(dir, "job.zip")); err != nil {
-		return fmt.Errorf("failed to remove the archive with a job after it's extracted: %v", err)
+		return "", fmt.Errorf("failed to remove the archive with a job after it's extracted: %v", err)
 	}
-	exe.up.logf("Success. Gcode: %s", path.Join(dir, "job.gcode"))
-	return nil
+	gcodePath = path.Join(dir, "job.gcode")
+	return
 }
 
 func (exe *Executor) Reboot() error {
