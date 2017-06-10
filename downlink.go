@@ -17,12 +17,14 @@ import (
 
 var ErrPrinterDeviceNotFound = errors.New("printer device is not found. May be it's turned off?")
 var ErrNoDownlinkConnection = errors.New("no downlink connection to the device")
+var ErrConnectionReset = errors.New("downlink connection was reset")
 
 const (
 	OKType        = "OK"
 	WaitForOKType = "WaitForOK"
 	SendType      = "Send"
 	ResendType    = "Resend"
+	ResetType     = "Reset"
 )
 
 type Downlink struct {
@@ -75,7 +77,8 @@ func (dl *Downlink) Run() error {
 		}
 		dl.up.logf("Opened %s at %d bps.", ttyDev, dl.baudRate)
 		// TODO(krasin): don't send M105 to the device; it's only needed for debug purposes.
-		fmt.Fprintf(conn, "M105\n")
+		fmt.Fprintf(conn, "M110 N0\n")
+		fmt.Fprintf(conn, gcode.AddLineAndHash(1, "M105\n"))
 		dl.mu.Lock()
 		dl.conn = conn
 		dl.lineno = 0
@@ -137,7 +140,9 @@ func (dl *Downlink) WriteAndWaitForOK(cmd string) error {
 	if err != nil {
 		return err
 	}
-	waitForOK(dl.reqCh, lineno)
+	if !waitForOK(dl.reqCh, lineno) {
+		return ErrConnectionReset
+	}
 	return nil
 }
 
@@ -222,6 +227,20 @@ func (dl *Downlink) handleTraffic() {
 			}
 			// Resending the command.
 			send(req.Lineno, cmd, true /*isResend*/)
+		case ResetType:
+			// We have been reconnected to the printer. All line numbers are reset.
+			// First of all, we need to close all response channels to free all goroutines
+			// waiting for confirmations.
+			for _, waitCh := range waits {
+				close(*waitCh)
+			}
+			// Initializing maps again
+			oks = make(map[int]bool)
+			waits = make(map[int]*chan bool)
+			hist = make(map[int]string)
+			resends = make(map[int]bool)
+			lastWriteWasAResend = false
+			lastResendLineno = 0
 		default:
 			dl.up.logf("Unknown request type: %s", req.Type)
 		}
@@ -259,10 +278,10 @@ func (dl *Downlink) readFromDevice(conn io.Reader) {
 	}
 }
 
-func waitForOK(reqCh chan *Request, lineno int) {
+func waitForOK(reqCh chan *Request, lineno int) bool {
 	ackCh := make(chan bool)
 	reqCh <- &Request{Type: WaitForOKType, Lineno: lineno, AckCh: &ackCh}
-	<-ackCh
+	return <-ackCh
 }
 
 // Find tty dev for the printer. As we work in a relatively stable environment,
