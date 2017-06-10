@@ -127,9 +127,15 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 			continue
 		}
 		for {
-			if err := exe.down.WriteAndWaitForOK(cmds[i].Text); err == nil {
+			err := exe.down.WriteAndWaitForOK(cmds[i].Text)
+			if err == nil {
 				break
 			}
+			if err == ErrConnectionReset {
+				exe.up.logf("Connection reset while printing. Sorry. There's nothing we can do about it.")
+				return err
+			}
+			exe.up.logf("WriteAndWaitForOK failed: %v. Retrying...", err)
 			exe.down.WaitForConnection()
 		}
 	}
