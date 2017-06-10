@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robodone/robosla-common/pkg/autoupdate"
 	"github.com/robodone/robosla-common/pkg/device_api"
 )
 
@@ -107,6 +108,9 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 	if !exe.down.Connected() {
 		return errors.New("can't execute gcode: printer not connected")
 	}
+	autoupdate.DisableUpdates()
+	defer autoupdate.EnableUpdates()
+
 	cmds, err := loadGcode(gcodePath)
 	if err != nil {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
