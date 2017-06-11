@@ -16,6 +16,7 @@ type Uplink struct {
 	nd            *pubsub.Node
 	mu            sync.Mutex
 	client        *device_api.Client
+	deviceName    string
 }
 
 func NewUplink(apiServerAddr string) *Uplink {
@@ -28,16 +29,17 @@ func (up *Uplink) getClient() *device_api.Client {
 	return up.client
 }
 
-func (up *Uplink) setClient(client *device_api.Client) {
+func (up *Uplink) setClientAndDeviceName(client *device_api.Client, deviceName string) {
 	up.mu.Lock()
 	defer up.mu.Unlock()
 	up.client = client
+	up.deviceName = deviceName
 }
 
 func (up *Uplink) Run() {
 	for {
 		if up.getClient() != nil {
-			up.setClient(nil)
+			up.setClientAndDeviceName(nil, "")
 			// Avoid immediate reconnects.
 			time.Sleep(5 * time.Second)
 		}
@@ -79,11 +81,15 @@ func (up *Uplink) Run() {
 		if err != nil {
 			log.Fatalf("Hello: %v", err)
 		}
-		up.setClient(client)
-		up.logf("RoboSLA agent version %s running on printer %s", Version, deviceName)
+		up.setClientAndDeviceName(client, deviceName)
+		up.PrintVersion()
 		// It will return when an underlying connection is closed.
 		<-client.Stopped()
 	}
+}
+
+func (up *Uplink) PrintVersion() {
+	up.logf("RoboSLA agent version %s running on printer %s", Version, up.deviceName)
 }
 
 func (up *Uplink) Sub(paths ...string) (*pubsub.Sub, error) {

@@ -95,7 +95,11 @@ func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 				return lastTS
 			}
 			continue
+		case "version":
+			exe.up.PrintVersion()
+			continue
 		}
+
 		if err := exe.down.WriteAndWaitForOK(cmd); err != nil {
 			exe.up.logf("Error while sending gcode: %v", err)
 			return lastTS
