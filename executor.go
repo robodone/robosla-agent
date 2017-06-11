@@ -88,7 +88,7 @@ func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 				exe.up.logf("Failed to execute %q: %v", arg, err)
 			}
 			continue
-		case "reboot":
+		case "reboot", "restart":
 			err := exe.Reboot()
 			if err != nil {
 				exe.up.logf("Failed to reboot: %v", err)
