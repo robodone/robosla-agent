@@ -60,7 +60,7 @@ func (dl *Downlink) Run() error {
 		if err != nil {
 			now := time.Now()
 			// Avoid log spam
-			if now.Sub(lastAttempt) > 5*time.Minute {
+			if now.Sub(lastAttempt) > 30*time.Minute {
 				lastAttempt = now
 				dl.up.logf("Scanning serial devices failed: %s", err)
 			}
