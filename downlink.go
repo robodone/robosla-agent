@@ -20,11 +20,12 @@ var ErrNoDownlinkConnection = errors.New("no downlink connection to the device")
 var ErrConnectionReset = errors.New("downlink connection was reset")
 
 const (
-	OKType        = "OK"
-	WaitForOKType = "WaitForOK"
-	SendType      = "Send"
-	ResendType    = "Resend"
-	ResetType     = "Reset"
+	OKType             = "OK"
+	NeverWaitForOKType = "NeverWaitForOK"
+	WaitForOKType      = "WaitForOK"
+	SendType           = "Send"
+	ResendType         = "Resend"
+	ResetType          = "Reset"
 )
 
 type Downlink struct {
@@ -160,6 +161,7 @@ func (dl *Downlink) handleTraffic() {
 	resends := make(map[int]bool)
 	lastWriteWasAResend := false
 	lastResendLineno := 0
+	neverWaitForOK := false
 
 	send := func(lineno int, cmd string, isResend bool) bool {
 		// Check if we had already resent the command. We only try to resend it once.
@@ -189,7 +191,13 @@ func (dl *Downlink) handleTraffic() {
 				*ch <- true
 				delete(waits, req.Lineno)
 			}
+		case NeverWaitForOKType:
+			neverWaitForOK = true
 		case WaitForOKType:
+			if neverWaitForOK {
+				*req.AckCh <- false
+				continue
+			}
 			if oks[req.Lineno] {
 				*req.AckCh <- true
 				continue
@@ -252,6 +260,13 @@ func (dl *Downlink) readFromDevice(conn io.Reader) {
 	for in.Scan() {
 		txt := strings.TrimSpace(in.Text())
 		dl.up.logf("%s\n", txt)
+		if strings.Index(txt, "echo:Marlin 1.1") >= 0 {
+			// At least in the case of uARM Swift Pro, ok responses are not set.
+			// So, we notify the handleTraffic goroutine that waitForOK must return immediately.
+			// This likely means inability to send gcode files. This is to be fixed later.
+			// For now, just unblock manual commands.
+			dl.reqCh <- &Request{Type: NeverWaitForOKType}
+		}
 		if strings.HasPrefix(txt, "ok ") {
 			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
 			if err != nil {
@@ -281,7 +296,14 @@ func (dl *Downlink) readFromDevice(conn io.Reader) {
 func waitForOK(reqCh chan *Request, lineno int) bool {
 	ackCh := make(chan bool)
 	reqCh <- &Request{Type: WaitForOKType, Lineno: lineno, AckCh: &ackCh}
-	return <-ackCh
+	ack, ok := <-ackCh
+	if ok && !ack {
+		// If we have not got an positive ack, but still got something out of the channel,
+		// it means that this firmware does not send acks at all. Impose an artificial
+		// delay of 20ms.
+		time.Sleep(20 * time.Millisecond)
+	}
+	return ok
 }
 
 // Find tty dev for the printer. As we work in a relatively stable environment,
