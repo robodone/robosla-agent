@@ -109,10 +109,6 @@ func (dl *Downlink) writeInternal(cmd string) (err error) {
 		}
 	}()
 	_, err = dl.conn.Write([]byte(cmd))
-	if err != nil {
-		dl.closed.Done()
-		dl.conn = nil
-	}
 	return
 }
 
@@ -258,6 +254,7 @@ func (dl *Downlink) handleTraffic() {
 func (dl *Downlink) readFromDevice(conn io.Reader) {
 	defer func() {
 		dl.reqCh <- &Request{Type: ResetType}
+		dl.closed.Done()
 	}()
 	in := bufio.NewScanner(conn)
 	for in.Scan() {
