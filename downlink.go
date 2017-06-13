@@ -256,6 +256,9 @@ func (dl *Downlink) handleTraffic() {
 }
 
 func (dl *Downlink) readFromDevice(conn io.Reader) {
+	defer func() {
+		dl.reqCh <- &Request{Type: ResetType}
+	}()
 	in := bufio.NewScanner(conn)
 	for in.Scan() {
 		txt := strings.TrimSpace(in.Text())
