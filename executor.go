@@ -134,7 +134,9 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
 	}
 	exe.up.logf("Loaded %d gcode commands from %s.", len(cmds), gcodePath)
-	exe.down.WaitForConnection()
+	if !exe.down.WaitForConnection(time.Minute) {
+		return ErrNoDownlinkConnection
+	}
 	// Wait to allow the downlink to read all pending messages.
 	time.Sleep(time.Second)
 
@@ -158,7 +160,9 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 				return err
 			}
 			exe.up.logf("WriteAndWaitForOK failed: %v. Retrying...", err)
-			exe.down.WaitForConnection()
+			if !exe.down.WaitForConnection(time.Minute) {
+				return ErrNoDownlinkConnection
+			}
 		}
 	}
 	return nil

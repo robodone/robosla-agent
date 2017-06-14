@@ -92,10 +92,14 @@ func (dl *Downlink) Run() error {
 	}
 }
 
-func (dl *Downlink) WaitForConnection() {
+func (dl *Downlink) WaitForConnection(wait time.Duration) bool {
+	until := time.Now().Add(wait)
 	for {
+		if time.Now().After(until) {
+			return false
+		}
 		if conn := dl.getConn(); conn != nil {
-			return
+			return true
 		}
 		time.Sleep(time.Second)
 	}
