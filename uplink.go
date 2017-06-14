@@ -117,6 +117,10 @@ func (up *Uplink) WaitForConnection() {
 	}
 }
 
+func (up *Uplink) NotifyJobDone(jobName string) {
+	up.Notify(fmt.Sprintf("notify-job-done %s", jobName))
+}
+
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)

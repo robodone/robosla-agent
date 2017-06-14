@@ -55,38 +55,46 @@ func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 	}
 	for _, cmd := range cmds {
 		cmd = strings.TrimSpace(cmd)
-		parts := strings.SplitN(cmd, " ", 2)
+		parts := strings.Split(cmd, " ")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
 		verb := parts[0]
-		var arg string
+		var arg1, arg2 string
 		if len(parts) > 1 {
-			arg = strings.TrimSpace(parts[1])
+			arg1 = parts[1]
+		}
+		if len(parts) > 2 {
+			arg2 = parts[2]
 		}
 		switch verb {
 		case "print":
-			err := exe.ExecuteGcode(arg)
+			err := exe.ExecuteGcode(arg1)
 			if err != nil {
-				exe.up.logf("Failed to execute %q: %v", arg, err)
+				exe.up.logf("Failed to execute %q: %v", arg1, err)
 				return lastTS
 			}
 			continue
 		case "fetch":
-			localGcodePath, err := exe.FetchJob(arg)
+			localGcodePath, err := exe.FetchJob(arg1)
 			if err != nil {
-				exe.up.logf("Failed to fetch %q: %v", arg, err)
+				exe.up.logf("Failed to fetch %q: %v", arg1, err)
 				return lastTS
 			}
 			exe.up.logf("Success. Job fetched into %s", localGcodePath)
 			continue
 		case "fetch-and-print":
-			localGcodePath, err := exe.FetchJob(arg)
+			// fetch-and-print <jobName> <archiveURL>
+			localGcodePath, err := exe.FetchJob(arg2)
 			if err != nil {
-				exe.up.logf("Failed to fetch %q: %v", arg, err)
+				exe.up.logf("Failed to fetch %q: %v", arg2, err)
 				return lastTS
 			}
 			err = exe.ExecuteGcode(localGcodePath)
 			if err != nil {
-				exe.up.logf("Failed to execute %q: %v", arg, err)
+				exe.up.logf("Failed to execute %q: %v", arg2, err)
 			}
+			exe.up.NotifyJobDone(arg1)
 			continue
 		case "reboot", "restart":
 			err := exe.Reboot()
