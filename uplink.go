@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -117,12 +118,33 @@ func (up *Uplink) WaitForConnection() {
 	}
 }
 
-func (up *Uplink) NotifyJobDone(jobName string) {
-	up.Notify(fmt.Sprintf("notify-job-done %s", jobName))
+type UplinkMessage struct {
+	Type    string `json:"type"`
+	JobName string `json:"jobName"`
+	Success bool   `json:"success"`
+	Status  string `json:"status"`
+}
+
+func (up *Uplink) NotifyJobDone(jobName string, success bool, status string) {
+	up.Notify(up.bestJson(&UplinkMessage{
+		Type:    "notify-job-done",
+		JobName: jobName,
+		Success: success,
+		Status:  status,
+	}))
 }
 
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)
 	up.Notify(fmt.Sprintf(format, args...))
+}
+
+func (up *Uplink) bestJson(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		up.logf("json.Marshal(%+v): %v", v, err)
+		return "{}"
+	}
+	return string(data)
 }
