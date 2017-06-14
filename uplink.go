@@ -118,15 +118,8 @@ func (up *Uplink) WaitForConnection() {
 	}
 }
 
-type UplinkMessage struct {
-	Type    string `json:"type"`
-	JobName string `json:"jobName"`
-	Success bool   `json:"success"`
-	Status  string `json:"status"`
-}
-
 func (up *Uplink) NotifyJobDone(jobName string, success bool, status string) {
-	up.Notify(up.bestJson(&UplinkMessage{
+	up.Notify(up.bestJson(&device_api.UplinkMessage{
 		Type:    "notify-job-done",
 		JobName: jobName,
 		Success: success,
