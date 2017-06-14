@@ -94,13 +94,13 @@ func (exe *Executor) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			if err != nil {
 				exe.up.logf("Failed to execute %q: %v", arg2, err)
 			}
-			var status string
+			var comment string
 			if err == nil {
-				status = "OK"
+				comment = "OK"
 			} else {
-				status = err.Error()
+				comment = err.Error()
 			}
-			exe.up.NotifyJobDone(arg1, err == nil, status)
+			exe.up.NotifyJobDone(arg1, err == nil, comment)
 			continue
 		case "reboot", "restart":
 			err := exe.Reboot()
