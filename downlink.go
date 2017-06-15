@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -136,13 +137,13 @@ func (dl *Downlink) addLinenoAndWrite(cmd string) (lineno int, err error) {
 	return lineno, nil
 }
 
-func (dl *Downlink) WriteAndWaitForOK(cmd string) error {
+func (dl *Downlink) WriteAndWaitForOK(ctx context.Context, cmd string) error {
 	lineno, err := dl.addLinenoAndWrite(cmd)
 	if err != nil {
 		return err
 	}
-	if !waitForOK(dl.reqCh, lineno) {
-		return ErrConnectionReset
+	if err := waitForOK(ctx, dl.reqCh, lineno); err != nil {
+		return err
 	}
 	return nil
 }
@@ -237,6 +238,8 @@ func (dl *Downlink) handleTraffic() {
 			send(req.Lineno, cmd, true /*isResend*/)
 		case ResetType:
 			// We have been reconnected to the printer. All line numbers are reset.
+			// Alternative: the job was canceled, in which case the line numbers are kept on the printer
+			// side, but we don't touch them in this handler anyway.
 			// First of all, we need to close all response channels to free all goroutines
 			// waiting for confirmations.
 			for _, waitCh := range waits {
@@ -297,17 +300,26 @@ func (dl *Downlink) readFromDevice(conn io.Reader) {
 	}
 }
 
-func waitForOK(reqCh chan *Request, lineno int) bool {
-	ackCh := make(chan bool)
+func waitForOK(ctx context.Context, reqCh chan *Request, lineno int) error {
+	// Never block the handleTraffic routine.
+	ackCh := make(chan bool, 1)
 	reqCh <- &Request{Type: WaitForOKType, Lineno: lineno, AckCh: &ackCh}
-	ack, ok := <-ackCh
-	if ok && !ack {
-		// If we have not got an positive ack, but still got something out of the channel,
-		// it means that this firmware does not send acks at all. Impose an artificial
-		// delay of 20ms.
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case ack, ok := <-ackCh:
+		if ok && !ack {
+			// If we have not got an positive ack, but still got something out of the channel,
+			// it means that this firmware does not send acks at all. Impose an artificial
+			// delay of 20ms.
+			time.Sleep(20 * time.Millisecond)
+		}
+		if !ok {
+			return errors.New("OK not received")
+		}
+		return nil
+	case <-ctx.Done():
+		reqCh <- &Request{Type: ResetType}
+		return context.Canceled
 	}
-	return ok
 }
 
 // Find tty dev for the printer. As we work in a relatively stable environment,

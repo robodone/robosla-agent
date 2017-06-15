@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -25,16 +28,27 @@ func NewExecutor(up *Uplink, down *Downlink) *Executor {
 	return &Executor{up: up, down: down}
 }
 
-func (exe *Executor) ExecuteGcode(gcodePath string) error {
+func isCanceled(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func (exe *Executor) ExecuteGcode(ctx context.Context, gcodePath string) error {
 	if !exe.down.Connected() {
 		return errors.New("can't execute gcode: printer not connected")
 	}
 	autoupdate.DisableUpdates()
 	defer autoupdate.EnableUpdates()
-
 	cmds, err := loadGcode(gcodePath)
 	if err != nil {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
+	}
+	if isCanceled(ctx) {
+		return context.Canceled
 	}
 	exe.up.logf("Loaded %d gcode commands from %s.", len(cmds), gcodePath)
 	if !exe.down.WaitForConnection(time.Minute) {
@@ -44,6 +58,9 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 	time.Sleep(time.Second)
 
 	for i := 0; i < len(cmds); i++ {
+		if isCanceled(ctx) {
+			return context.Canceled
+		}
 		if cmds[i].IsHost() {
 			// We should handle host command failures gracefully. At the very least,
 			// we'll need to turn off the UV light.
@@ -54,7 +71,7 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 			continue
 		}
 		for {
-			err := exe.down.WriteAndWaitForOK(cmds[i].Text)
+			err := exe.down.WriteAndWaitForOK(ctx, cmds[i].Text)
 			if err == nil {
 				break
 			}
@@ -63,6 +80,9 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 				return err
 			}
 			exe.up.logf("WriteAndWaitForOK failed: %v. Retrying...", err)
+			if isCanceled(ctx) {
+				return context.Canceled
+			}
 			if !exe.down.WaitForConnection(time.Minute) {
 				return ErrNoDownlinkConnection
 			}
@@ -71,9 +91,9 @@ func (exe *Executor) ExecuteGcode(gcodePath string) error {
 	return nil
 }
 
-func (exe *Executor) FetchJob(jobURL string) (gcodePath string, err error) {
+func (exe *Executor) FetchJob(ctx context.Context, jobURL string) (gcodePath string, err error) {
 	exe.up.logf("Downloading a job from %s", jobURL)
-	data, err := exe.getURL(jobURL)
+	data, err := exe.getURL(ctx, jobURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch a job from %q: %v", jobURL, err)
 	}
@@ -131,7 +151,7 @@ func loadGcode(fname string) ([]*Cmd, error) {
 	return cmds, nil
 }
 
-func (exe *Executor) getURL(srcURL string) (res []byte, err error) {
+func (exe *Executor) getURL(ctx context.Context, srcURL string) (res []byte, err error) {
 	// Validate url to make sure no malware is downloaded this way.
 	// Theoretically, we are dealing with secure connections, but
 	// the users are conned very easily. So, no.
@@ -158,7 +178,7 @@ func (exe *Executor) getURL(srcURL string) (res []byte, err error) {
 		return nil, fmt.Errorf("http.Get(%q): %v", cleanURL, err)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := readAll(ctx, resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read HTTP response: %v", err)
 	}
@@ -166,6 +186,27 @@ func (exe *Executor) getURL(srcURL string) (res []byte, err error) {
 		return nil, fmt.Errorf("unexpected HTTP status: %s %d. Want 200.", resp.Status, resp.StatusCode)
 	}
 	return body, nil
+}
+
+func readAll(ctx context.Context, r io.Reader) ([]byte, error) {
+	var buf bytes.Buffer
+	b := make([]byte, 128<<10)
+	for {
+		if isCanceled(ctx) {
+			return nil, context.Canceled
+		}
+		n, err := r.Read(b)
+		if n > 0 {
+			buf.Write(b[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return buf.Bytes(), nil
 }
 
 func parseGcodeCommand(baseDir, line string) (*Cmd, error) {

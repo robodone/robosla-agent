@@ -1,18 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/device_api"
 )
 
 type Shell struct {
-	up  *Uplink
-	exe *Executor
+	up           *Uplink
+	exe          *Executor
+	mu           sync.Mutex
+	curJobCancel context.CancelFunc
 }
 
 func NewShell(up *Uplink, down *Downlink) *Shell {
@@ -63,39 +67,39 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			arg2 = parts[2]
 		}
 		switch verb {
-		case "print":
-			err := sh.exe.ExecuteGcode(arg1)
-			if err != nil {
-				sh.up.logf("Failed to execute %q: %v", arg1, err)
-				return lastTS
-			}
-			continue
-		case "fetch":
-			localGcodePath, err := sh.exe.FetchJob(arg1)
-			if err != nil {
-				sh.up.logf("Failed to fetch %q: %v", arg1, err)
-				return lastTS
-			}
-			sh.up.logf("Success. Job fetched into %s", localGcodePath)
+		case "cancel":
+			sh.cancelJob()
 			continue
 		case "fetch-and-print":
-			// fetch-and-print <jobName> <archiveURL>
-			localGcodePath, err := sh.exe.FetchJob(arg2)
+			// print <jobName> <archiveURL>
+			ctx, err := sh.getNewJobContext()
 			if err != nil {
-				sh.up.logf("Failed to fetch %q: %v", arg2, err)
+				sh.up.NotifyJobDone(arg1, false, err.Error())
 				return lastTS
 			}
-			err = sh.exe.ExecuteGcode(localGcodePath)
-			if err != nil {
-				sh.up.logf("Failed to execute %q: %v", arg2, err)
-			}
-			var comment string
-			if err == nil {
-				comment = "OK"
-			} else {
-				comment = err.Error()
-			}
-			sh.up.NotifyJobDone(arg1, err == nil, comment)
+			go func(ctx context.Context, jobName, jobURL string) {
+				var err error
+				defer func() {
+					var comment string
+					if err == nil {
+						comment = "OK"
+					} else {
+						comment = err.Error()
+					}
+					sh.clearCurrentJob()
+					sh.up.NotifyJobDone(jobName, err == nil, comment)
+				}()
+				localGcodePath, err := sh.exe.FetchJob(ctx, jobURL)
+				if err != nil {
+					sh.up.logf("Failed to fetch %q: %v", jobURL, err)
+					return
+				}
+				err = sh.exe.ExecuteGcode(ctx, localGcodePath)
+				if err != nil {
+					sh.up.logf("Failed to execute %q: %v", jobURL, err)
+					return
+				}
+			}(ctx, arg1, arg2)
 			continue
 		case "reboot", "restart":
 			err := sh.Reboot()
@@ -109,7 +113,8 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			continue
 		}
 
-		if err := sh.exe.down.WriteAndWaitForOK(cmd); err != nil {
+		// Sending just a single g-code command to the printer. This is not cancelable yet.
+		if err := sh.exe.down.WriteAndWaitForOK(context.TODO(), cmd); err != nil {
 			sh.up.logf("Error while sending gcode: %v", err)
 			return lastTS
 		}
@@ -126,4 +131,34 @@ func (sh *Shell) Reboot() error {
 		return fmt.Errorf("failed to reboot: %v\nOutput:\n%s", err, string(data))
 	}
 	return nil
+}
+
+func (sh *Shell) getNewJobContext() (context.Context, error) {
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if sh.curJobCancel != nil {
+		return nil, fmt.Errorf("job is already running")
+	}
+	var ctx context.Context
+	ctx, sh.curJobCancel = context.WithCancel(context.Background())
+	return ctx, nil
+}
+
+func (sh *Shell) clearCurrentJob() {
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	sh.curJobCancel = nil
+}
+
+func (sh *Shell) cancelJob() {
+	sh.mu.Lock()
+	cancel := sh.curJobCancel
+	sh.curJobCancel = nil
+	sh.mu.Unlock()
+	if cancel == nil {
+		sh.up.logf("Nothing to cancel: no job is currently running.")
+		return
+	}
+	cancel()
+	sh.up.logf("Cancelation is requested.")
 }
