@@ -63,6 +63,9 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 			return context.Canceled
 		}
 		progress := float64(int((i*1000)/len(cmds))) / 10
+		if progress == 0 {
+			progress = 0.05
+		}
 		if progress > lastProgress {
 			exe.up.NotifyJobProgress(jobName, progress)
 			lastProgress = progress
