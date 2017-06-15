@@ -94,7 +94,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 					sh.up.logf("Failed to fetch %q: %v", jobURL, err)
 					return
 				}
-				err = sh.exe.ExecuteGcode(ctx, localGcodePath)
+				err = sh.exe.ExecuteGcode(ctx, jobName, localGcodePath)
 				if err != nil {
 					sh.up.logf("Failed to execute %q: %v", jobURL, err)
 					return

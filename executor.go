@@ -37,7 +37,7 @@ func isCanceled(ctx context.Context) bool {
 	}
 }
 
-func (exe *Executor) ExecuteGcode(ctx context.Context, gcodePath string) error {
+func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string) error {
 	if !exe.down.Connected() {
 		return errors.New("can't execute gcode: printer not connected")
 	}
@@ -57,9 +57,15 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, gcodePath string) error {
 	// Wait to allow the downlink to read all pending messages.
 	time.Sleep(time.Second)
 
+	var lastProgress float64
 	for i := 0; i < len(cmds); i++ {
 		if isCanceled(ctx) {
 			return context.Canceled
+		}
+		progress := float64(int((i*1000)/len(cmds))) / 10
+		if progress > lastProgress {
+			exe.up.NotifyJobProgress(jobName, progress)
+			lastProgress = progress
 		}
 		if cmds[i].IsHost() {
 			// We should handle host command failures gracefully. At the very least,

@@ -99,6 +99,13 @@ func (up *Uplink) Sub(paths ...string) (*pubsub.Sub, error) {
 
 // Notify makes best effort to notify about the received terminal output or errors.
 func (up *Uplink) Notify(out string) {
+	// We don't want to block anyone with these updates.
+	// Starting goroutines mean that the updates may potentially be
+	// delivered out of order, but we don't enforce it anyway.
+	go up.notify(out)
+}
+
+func (up *Uplink) notify(out string) {
 	client := up.getClient()
 	if client == nil {
 		// We are not connected. Two options: postpone sending those updates,
@@ -124,6 +131,14 @@ func (up *Uplink) NotifyJobDone(jobName string, success bool, comment string) {
 		JobName: jobName,
 		Success: success,
 		Comment: comment,
+	}))
+}
+
+func (up *Uplink) NotifyJobProgress(jobName string, progress float64) {
+	up.Notify(up.bestJson(&device_api.UplinkMessage{
+		Type:     "notify-job-progress",
+		JobName:  jobName,
+		Progress: progress,
 	}))
 }
 
