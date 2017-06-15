@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
+	"github.com/robodone/robosla-common/pkg/device_api"
 )
 
 var (
 	Version     = "dev"
 	showVersion = flag.Bool("version", false, "If specified, the binary will show its version and exit")
 	baudRate    = flag.Int("rate", 115200, "Baud rate")
-	apiServer   = flag.String("api_server", "test1.robosla.com", "Address of the API server")
+	apiServer   = flag.String("api_server", "", "Address of the API server")
 )
 
 func failf(format string, args ...interface{}) {
@@ -40,6 +41,10 @@ func main() {
 	go autoupdate.Run(autoupdate.ProdManifestURL, Version, time.Minute, 5*time.Minute)
 
 	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
+
+	if *apiServer == "" {
+		*apiServer = device_api.ChooseServer(Version)
+	}
 	up := NewUplink(*apiServer)
 	go up.Run()
 
