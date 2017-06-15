@@ -51,8 +51,8 @@ func main() {
 	down := NewDownlink(up, *baudRate)
 	go down.Run()
 
-	exe := NewExecutor(up, down)
-	go exe.Run()
+	sh := NewShell(up, down)
+	go sh.Run()
 
 	// Never exit
 	select {}
