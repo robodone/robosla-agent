@@ -37,7 +37,7 @@ func isCanceled(ctx context.Context) bool {
 	}
 }
 
-func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string) error {
+func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string) (err error) {
 	if !exe.down.Connected() {
 		return errors.New("can't execute gcode: printer not connected")
 	}
@@ -56,6 +56,19 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	}
 	// Wait to allow the downlink to read all pending messages.
 	time.Sleep(time.Second)
+
+	// No matter what, if this function returns an error, we will try to turn off UV LED.
+	defer func() {
+		if err == nil {
+			return
+		}
+		// Don't block it for more than 30 seconds.
+		ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+		// Best effort.
+		if err := exe.down.WriteAndWaitForOK(ctx, "M107"); err != nil {
+			exe.up.logf("Failed to turn off UV LED. Error: %v", err)
+		}
+	}()
 
 	var lastProgress float64
 	for i := 0; i < len(cmds); i++ {
