@@ -142,6 +142,13 @@ func (up *Uplink) NotifyJobProgress(jobName string, progress float64) {
 	}))
 }
 
+func (up *Uplink) NotifyFrameIndex(jobName string, frameIndex int) {
+	up.Notify(up.bestJson(&device_api.UplinkMessage{
+		Type:       "notify-frame-index",
+		JobName:    jobName,
+		FrameIndex: frameIndex,
+	}))
+}
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)
