@@ -50,8 +50,14 @@ func main() {
 	up := NewUplink(*apiServer)
 	go up.Run()
 
-	down := NewRealDownlink(up, *baudRate)
-	go down.Run()
+	var down Downlink
+	if *virtual {
+		down = NewVirtualDownlink(up, *speedup)
+	} else {
+		realDown := NewRealDownlink(up, *baudRate)
+		go realDown.Run()
+		down = realDown
+	}
 
 	sh := NewShell(up, down)
 	go sh.Run()
