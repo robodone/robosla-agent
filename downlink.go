@@ -29,7 +29,13 @@ const (
 	ResetType          = "Reset"
 )
 
-type Downlink struct {
+type Downlink interface {
+	WriteAndWaitForOK(ctx context.Context, cmd string) error
+	WaitForConnection(wait time.Duration) bool
+	Connected() bool
+}
+
+type RealDownlink struct {
 	up       *Uplink
 	baudRate int
 	mu       sync.Mutex
@@ -39,21 +45,21 @@ type Downlink struct {
 	lineno   int
 }
 
-func NewDownlink(up *Uplink, baudRate int) *Downlink {
-	return &Downlink{up: up, baudRate: baudRate, reqCh: make(chan *Request)}
+func NewRealDownlink(up *Uplink, baudRate int) *RealDownlink {
+	return &RealDownlink{up: up, baudRate: baudRate, reqCh: make(chan *Request)}
 }
 
-func (dl *Downlink) getConn() io.ReadWriteCloser {
+func (dl *RealDownlink) getConn() io.ReadWriteCloser {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
 	return dl.conn
 }
 
-func (dl *Downlink) Connected() bool {
+func (dl *RealDownlink) Connected() bool {
 	return dl.getConn() != nil
 }
 
-func (dl *Downlink) Run() error {
+func (dl *RealDownlink) Run() error {
 	go dl.handleTraffic()
 	var lastAttempt time.Time
 	for {
@@ -93,7 +99,7 @@ func (dl *Downlink) Run() error {
 	}
 }
 
-func (dl *Downlink) WaitForConnection(wait time.Duration) bool {
+func (dl *RealDownlink) WaitForConnection(wait time.Duration) bool {
 	until := time.Now().Add(wait)
 	for {
 		if time.Now().After(until) {
@@ -106,18 +112,18 @@ func (dl *Downlink) WaitForConnection(wait time.Duration) bool {
 	}
 }
 
-func (dl *Downlink) writeInternal(cmd string) (err error) {
+func (dl *RealDownlink) writeInternal(cmd string) (err error) {
 	dl.up.logf("> %s", cmd)
 	defer func() {
 		if err != nil {
-			dl.up.logf("Downlink write error: %v", err)
+			dl.up.logf("RealDownlink write error: %v", err)
 		}
 	}()
 	_, err = dl.conn.Write([]byte(cmd))
 	return
 }
 
-func (dl *Downlink) takeLineno() (int, error) {
+func (dl *RealDownlink) takeLineno() (int, error) {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
 	if dl.conn == nil {
@@ -127,7 +133,7 @@ func (dl *Downlink) takeLineno() (int, error) {
 	return dl.lineno, nil
 }
 
-func (dl *Downlink) addLinenoAndWrite(cmd string) (lineno int, err error) {
+func (dl *RealDownlink) addLinenoAndWrite(cmd string) (lineno int, err error) {
 	lineno, err = dl.takeLineno()
 	if err != nil {
 		return
@@ -137,7 +143,7 @@ func (dl *Downlink) addLinenoAndWrite(cmd string) (lineno int, err error) {
 	return lineno, nil
 }
 
-func (dl *Downlink) WriteAndWaitForOK(ctx context.Context, cmd string) error {
+func (dl *RealDownlink) WriteAndWaitForOK(ctx context.Context, cmd string) error {
 	lineno, err := dl.addLinenoAndWrite(cmd)
 	if err != nil {
 		return err
@@ -155,7 +161,7 @@ type Request struct {
 	AckCh  *chan bool
 }
 
-func (dl *Downlink) handleTraffic() {
+func (dl *RealDownlink) handleTraffic() {
 	oks := make(map[int]bool)
 	waits := make(map[int]*chan bool)
 	hist := make(map[int]string)
@@ -258,7 +264,7 @@ func (dl *Downlink) handleTraffic() {
 	}
 }
 
-func (dl *Downlink) readFromDevice(conn io.Reader) {
+func (dl *RealDownlink) readFromDevice(conn io.Reader) {
 	defer func() {
 		dl.reqCh <- &Request{Type: ResetType}
 		dl.closed.Done()

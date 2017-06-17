@@ -19,7 +19,7 @@ type Shell struct {
 	curJobCancel context.CancelFunc
 }
 
-func NewShell(up *Uplink, down *Downlink) *Shell {
+func NewShell(up *Uplink, down Downlink) *Shell {
 	return &Shell{
 		up:  up,
 		exe: NewExecutor(up, down),

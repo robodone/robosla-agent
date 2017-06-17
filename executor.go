@@ -21,10 +21,10 @@ import (
 
 type Executor struct {
 	up   *Uplink
-	down *Downlink
+	down Downlink
 }
 
-func NewExecutor(up *Uplink, down *Downlink) *Executor {
+func NewExecutor(up *Uplink, down Downlink) *Executor {
 	return &Executor{up: up, down: down}
 }
 

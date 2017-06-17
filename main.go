@@ -17,6 +17,8 @@ var (
 	showVersion = flag.Bool("version", false, "If specified, the binary will show its version and exit")
 	baudRate    = flag.Int("rate", 115200, "Baud rate")
 	apiServer   = flag.String("api_server", "", "Address of the API server")
+	virtual     = flag.Bool("virtual", false, "If specified, the printer will simulate a connection to a printer.")
+	speedup     = flag.Float64("speedup", 10, "Speedup for --virtual mode")
 )
 
 func failf(format string, args ...interface{}) {
@@ -48,7 +50,7 @@ func main() {
 	up := NewUplink(*apiServer)
 	go up.Run()
 
-	down := NewDownlink(up, *baudRate)
+	down := NewRealDownlink(up, *baudRate)
 	go down.Run()
 
 	sh := NewShell(up, down)
