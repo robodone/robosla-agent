@@ -338,6 +338,9 @@ func parseGcodeCommand(baseDir, line string) (*Cmd, error) {
 		typ = "M"
 		idx = num
 		switch num {
+		case 84:
+			// Release motors
+			asm()
 		case 106:
 			asm('P', 'S')
 		case 107:
