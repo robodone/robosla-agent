@@ -18,6 +18,8 @@ type Uplink struct {
 	mu            sync.Mutex
 	client        *device_api.Client
 	deviceName    string
+	// This is likely not an appropriate place, but I don't have good ideas right now.
+	jobName string
 }
 
 func NewUplink(apiServerAddr string) *Uplink {
@@ -35,6 +37,18 @@ func (up *Uplink) setClientAndDeviceName(client *device_api.Client, deviceName s
 	defer up.mu.Unlock()
 	up.client = client
 	up.deviceName = deviceName
+}
+
+func (up *Uplink) getJobName() string {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	return up.jobName
+}
+
+func (up *Uplink) SetJobName(jobName string) {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	up.jobName = jobName
 }
 
 func (up *Uplink) Run() {
@@ -78,7 +92,7 @@ func (up *Uplink) Run() {
 		if err != nil {
 			log.Fatalf("Failed to read device.json: %v", err)
 		}
-		deviceName, err := client.Hello(deviceCookie)
+		deviceName, err := client.Hello(deviceCookie, up.getJobName())
 		if err != nil {
 			log.Fatalf("Hello: %v", err)
 		}

@@ -43,6 +43,9 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	}
 	autoupdate.DisableUpdates()
 	defer autoupdate.EnableUpdates()
+	exe.up.SetJobName(jobName)
+	defer exe.up.SetJobName("")
+
 	cmds, err := loadGcode(gcodePath)
 	if err != nil {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
