@@ -65,8 +65,10 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 		// Don't block it for more than 30 seconds.
 		ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
 		// Best effort.
-		if err := exe.down.WriteAndWaitForOK(ctx, "M107"); err != nil {
-			exe.up.logf("Failed to turn off UV LED. Error: %v", err)
+		for _, cmd := range []string{"M107", "G1 Z150 F150", "M84"} {
+			if err := exe.down.WriteAndWaitForOK(ctx, cmd); err != nil {
+				exe.up.logf("Failed to turn off UV LED. Error: %v", err)
+			}
 		}
 	}()
 
