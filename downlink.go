@@ -168,6 +168,7 @@ func (dl *RealDownlink) handleTraffic() {
 	resends := make(map[int]bool)
 	lastWriteWasAResend := false
 	lastResendLineno := 0
+	lastOKLineno := 0
 	neverWaitForOK := false
 
 	send := func(lineno int, cmd string, isResend bool) bool {
@@ -192,11 +193,18 @@ func (dl *RealDownlink) handleTraffic() {
 	for req := range dl.reqCh {
 		switch req.Type {
 		case OKType:
-			oks[req.Lineno] = true
-			delete(hist, req.Lineno)
-			if ch, ok := waits[req.Lineno]; ok {
+			lineno := req.Lineno
+			if lineno == 0 {
+				// The firmware did not send a lineno with 'ok'.
+				// Find the oldest un-ok-ed lineno and mark it as confirmed.
+				lineno = lastOKLineno + 1
+			}
+			lastOKLineno = lineno
+			oks[lineno] = true
+			delete(hist, lineno)
+			if ch, ok := waits[lineno]; ok {
 				*ch <- true
-				delete(waits, req.Lineno)
+				delete(waits, lineno)
 			}
 		case NeverWaitForOKType:
 			neverWaitForOK = true
@@ -258,6 +266,7 @@ func (dl *RealDownlink) handleTraffic() {
 			resends = make(map[int]bool)
 			lastWriteWasAResend = false
 			lastResendLineno = 0
+			lastOKLineno = 0
 		default:
 			dl.up.logf("Unknown request type: %s", req.Type)
 		}
@@ -279,6 +288,11 @@ func (dl *RealDownlink) readFromDevice(conn io.Reader) {
 			// This likely means inability to send gcode files. This is to be fixed later.
 			// For now, just unblock manual commands.
 			dl.reqCh <- &Request{Type: NeverWaitForOKType}
+		}
+		if txt == "ok" {
+			// The firmware did not send us a lineno. Okay.
+			dl.reqCh <- &Request{Type: OKType}
+			continue
 		}
 		if strings.HasPrefix(txt, "ok ") {
 			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
