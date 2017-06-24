@@ -56,6 +56,19 @@ func (dl *DFADownlink) Connected() bool {
 	return <-respCh
 }
 
+func (dl *DFADownlink) WaitForConnection(wait time.Duration) bool {
+	until := time.Now().Add(wait)
+	for {
+		if time.Now().After(until) {
+			return false
+		}
+		if dl.Connected() {
+			return true
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 func (dl *DFADownlink) Run() error {
 	st := Disconnected
 	for {
