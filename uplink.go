@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -167,6 +168,12 @@ func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)
 	up.Notify(fmt.Sprintf(format, args...))
+}
+
+func (up *Uplink) Fatalf(format string, args ...interface{}) {
+	up.logf("FATAL: "+format, args...)
+	time.Sleep(time.Second)
+	os.Exit(1)
 }
 
 func (up *Uplink) bestJson(v interface{}) string {
