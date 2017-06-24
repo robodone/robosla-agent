@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -47,6 +49,7 @@ const (
 type DFAMsg struct {
 	Type   MsgType
 	Lineno int
+	Cmd    string
 	RespCh chan<- bool
 }
 
@@ -66,6 +69,26 @@ func (dl *DFADownlink) WaitForConnection(wait time.Duration) bool {
 			return true
 		}
 		time.Sleep(time.Second)
+	}
+}
+
+func (dl *DFADownlink) WriteAndWaitForOK(ctx context.Context, cmd string) error {
+	respCh := make(chan bool, 1)
+	dl.reqCh <- &DFAMsg{Type: MsgWriteAndWaitForOK, Cmd: cmd}
+	select {
+	case ack, ok := <-respCh:
+		if ok && !ack {
+			// If we have not got an positive ack, but still got something out of the channel,
+			// it means that this firmware does not send acks at all. Impose an artificial
+			// delay of 20ms.
+			time.Sleep(20 * time.Millisecond)
+		}
+		if !ok {
+			return errors.New("OK not received")
+		}
+		return nil
+	case <-ctx.Done():
+		return context.Canceled
 	}
 }
 
