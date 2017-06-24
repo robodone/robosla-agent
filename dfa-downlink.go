@@ -41,6 +41,7 @@ const (
 	MsgConnected    = MsgType(1)
 	MsgIsConnected  = MsgType(2)
 	MsgDisconnected = MsgType(3)
+	MsgOK           = MsgType(4)
 )
 
 type DFAMsg struct {
@@ -63,6 +64,8 @@ func (dl *DFADownlink) Run() error {
 			st = dl.handleDisconnected()
 		case Connecting:
 			st = dl.handleConnecting()
+		case Connected:
+			st = dl.handleConnected()
 		case Normal:
 			st = dl.handleNormal()
 		case WaitingForOK:
@@ -122,6 +125,8 @@ func (dl *DFADownlink) handleConnecting() State {
 			msg.RespCh <- false
 		case MsgDisconnected:
 			dl.up.Fatalf("handleConnecting: received MsgDisconnected. Inconceivable!")
+		case MsgOK:
+			dl.up.Fatalf("handleConnecting: received MsgOK. Inconceivable!")
 		default:
 			dl.up.Fatalf("handleConnecting: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -188,6 +193,8 @@ func (dl *DFADownlink) handleNormal() State {
 		case MsgDisconnected:
 			dl.up.logf("handleNormal: received MsgDisconnected")
 			return Disconnected
+		case MsgOK:
+			dl.up.logf("handleNormal: received MsgOK. Could be a leftover since previous connection. Ignore (mildly dangerous)")
 		default:
 			dl.up.Fatalf("handleNormal: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
