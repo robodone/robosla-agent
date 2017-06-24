@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/samofly/serial"
@@ -35,12 +38,14 @@ const (
 type MsgType int
 
 const (
-	MsgConnected   = MsgType(1)
-	MsgIsConnected = MsgType(2)
+	MsgConnected    = MsgType(1)
+	MsgIsConnected  = MsgType(2)
+	MsgDisconnected = MsgType(3)
 )
 
 type DFAMsg struct {
 	Type   MsgType
+	Lineno int
 	RespCh chan<- bool
 }
 
@@ -115,6 +120,8 @@ func (dl *DFADownlink) handleConnecting() State {
 		case MsgIsConnected:
 			// We are not connected.
 			msg.RespCh <- false
+		case MsgDisconnected:
+			dl.up.Fatalf("handleConnecting: received MsgDisconnected. Inconceivable!")
 		default:
 			dl.up.Fatalf("handleConnecting: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -129,6 +136,47 @@ func (dl *DFADownlink) handleConnected() State {
 	return Normal
 }
 
+func (dl *DFADownlink) readFromDevice(conn io.ReadWriteCloser) {
+	defer func() {
+		// Most likely, the connection is already closed, but we make the best effort, if it is not.
+		conn.Close()
+		dl.reqCh <- &DFAMsg{Type: MsgDisconnected}
+	}()
+	in := bufio.NewScanner(conn)
+	for in.Scan() {
+		txt := strings.TrimSpace(in.Text())
+		dl.up.logf("%s\n", txt)
+		if txt == "ok" {
+			// The firmware did not send us a lineno. Okay.
+			dl.reqCh <- &DFAMsg{Type: MsgOK}
+			continue
+		}
+		if strings.HasPrefix(txt, "ok ") {
+			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
+			if err != nil {
+				dl.up.logf("Failed to parse a line number from an ok response %q: %v", txt, err)
+				continue
+			}
+			dl.reqCh <- &DFAMsg{Type: MsgOK, Lineno: int(lineno)}
+			continue
+		}
+		// Resend:17206
+		if strings.HasPrefix(txt, "Resend:") {
+			rest := strings.TrimSpace(txt[len("Resend:"):])
+			lineno, err := strconv.ParseUint(rest, 10, 64)
+			if err != nil {
+				dl.up.logf("Failed to parse a resend response %q: %v", txt, err)
+				continue
+			}
+			dl.reqCh <- &DFAMsg{Type: MsgResend, Lineno: int(lineno)}
+			continue
+		}
+	}
+	if err := in.Err(); err != nil {
+		dl.up.logf("readFromDevice: %v", err)
+	}
+}
+
 func (dl *DFADownlink) handleNormal() State {
 	for msg := range dl.reqCh {
 		switch msg.Type {
@@ -137,6 +185,9 @@ func (dl *DFADownlink) handleNormal() State {
 		case MsgIsConnected:
 			// We are connected.
 			msg.RespCh <- true
+		case MsgDisconnected:
+			dl.up.logf("handleNormal: received MsgDisconnected")
+			return Disconnected
 		default:
 			dl.up.Fatalf("handleNormal: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
