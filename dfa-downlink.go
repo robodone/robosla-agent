@@ -16,10 +16,11 @@ import (
 // DFADownlink is empowered by Deterministic Finite Automata to track
 // all states, requests and connections.
 type DFADownlink struct {
-	up       *Uplink
-	baudRate int
-	reqCh    chan *DFAMsg
-	conn     io.ReadWriteCloser
+	up           *Uplink
+	baudRate     int
+	reqCh        chan *DFAMsg
+	conn         io.ReadWriteCloser
+	pendingOKAck chan<- bool
 }
 
 func NewDFADownlink(up *Uplink, baudRate int) *DFADownlink {
@@ -40,16 +41,18 @@ const (
 type MsgType int
 
 const (
-	MsgConnected    = MsgType(1)
-	MsgIsConnected  = MsgType(2)
-	MsgDisconnected = MsgType(3)
-	MsgOK           = MsgType(4)
+	MsgConnected         = MsgType(1)
+	MsgIsConnected       = MsgType(2)
+	MsgDisconnected      = MsgType(3)
+	MsgOK                = MsgType(4)
+	MsgWriteAndWaitForOK = MsgType(5)
 )
 
 type DFAMsg struct {
 	Type   MsgType
 	Lineno int
 	Cmd    string
+	Err    error
 	RespCh chan<- bool
 }
 
@@ -163,6 +166,11 @@ func (dl *DFADownlink) handleConnecting() State {
 			dl.up.Fatalf("handleConnecting: received MsgDisconnected. Inconceivable!")
 		case MsgOK:
 			dl.up.Fatalf("handleConnecting: received MsgOK. Inconceivable!")
+		case MsgWriteAndWaitForOK:
+			// We have received a request to send a command, but we are not connected.
+			// This is a valid possibility, but we have to decline this request.
+			dl.up.logf("handleConnecting: unable to write a command (%q), because we are not connected. May be the printer is turned off?")
+			msg.RespCh <- false
 		default:
 			dl.up.Fatalf("handleConnecting: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -231,10 +239,28 @@ func (dl *DFADownlink) handleNormal() State {
 			return Disconnected
 		case MsgOK:
 			dl.up.logf("handleNormal: received MsgOK. Could be a leftover since previous connection. Ignore (mildly dangerous)")
+		case MsgWriteAndWaitForOK:
+			// This is exactly the message we want to receive here.
+			dl.pendingOKAck = msg.RespCh
+			go dl.write(dl.conn, msg.Cmd)
+			return WaitingForOK
 		default:
 			dl.up.Fatalf("handleNormal: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
 	}
 	dl.up.Fatalf("handleNormal: reqCh is closed")
 	return Terminated
+}
+
+func (dl *DFADownlink) write(conn io.ReadWriteCloser, cmd string) {
+	dl.up.logf("> %s", cmd)
+	var err error
+	defer func() {
+		if err != nil {
+			dl.up.logf("DFADownlink write error: %v", err)
+		}
+		dl.reqCh <- &DFAMsg{Type: MsgWritten, Err: err}
+	}()
+	_, err = dl.conn.Write([]byte(cmd))
+	return
 }
