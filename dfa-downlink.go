@@ -235,6 +235,16 @@ func (dl *DFADownlink) readFromDevice(conn io.ReadWriteCloser) {
 }
 
 func (dl *DFADownlink) handleNormal() State {
+	wr := func(msg *DFAMsg) State {
+		dl.pendingOKAck = msg.RespCh
+		go dl.write(dl.conn, msg.Cmd)
+		return WaitingForOK
+	}
+	if len(dl.pendingWrites) > 0 {
+		// We have some pending write requests. Take one.
+		msg := dl.pendingWrites[0]
+		return wr(msg)
+	}
 	for msg := range dl.reqCh {
 		switch msg.Type {
 		case MsgConnected:
@@ -249,9 +259,7 @@ func (dl *DFADownlink) handleNormal() State {
 			dl.up.logf("handleNormal: received MsgOK. Could be a leftover since previous connection. Ignore (mildly dangerous)")
 		case MsgWriteAndWaitForOK:
 			// This is exactly the message we want to receive here.
-			dl.pendingOKAck = msg.RespCh
-			go dl.write(dl.conn, msg.Cmd)
-			return WaitingForOK
+			return wr(msg)
 		case MsgWritten:
 			dl.up.Fatalf("handleNormal: received MsgWritten. Inconceivable!")
 		default:
