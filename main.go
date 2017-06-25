@@ -54,9 +54,12 @@ func main() {
 	if *virtual {
 		down = NewVirtualDownlink(up, *speedup)
 	} else {
-		realDown := NewRealDownlink(up, *baudRate)
+		/*realDown := NewRealDownlink(up, *baudRate)
 		go realDown.Run()
-		down = realDown
+		down = realDown*/
+		dfaDown := NewDFADownlink(up, *baudRate)
+		go dfaDown.Run()
+		down = dfaDown
 	}
 
 	sh := NewShell(up, down)

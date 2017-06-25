@@ -65,12 +65,13 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 		if err == nil {
 			return
 		}
-		// Don't block it for more than 30 seconds.
-		ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+		exe.up.NotifyJobProgress(jobName, 0)
+		// Don't block it for more than 70*3 seconds.
+		ctx, _ := context.WithTimeout(context.Background(), 70*time.Second)
 		// Best effort.
 		for _, cmd := range []string{"M107", "G1 Z150 F150", "M84"} {
 			if err := exe.down.WriteAndWaitForOK(ctx, cmd); err != nil {
-				exe.up.logf("Failed to turn off UV LED. Error: %v", err)
+				exe.up.logf("Failed to run abort procedures. Error: %v", err)
 			}
 		}
 	}()

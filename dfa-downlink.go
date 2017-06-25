@@ -82,7 +82,7 @@ func (dl *DFADownlink) WaitForConnection(wait time.Duration) bool {
 
 func (dl *DFADownlink) WriteAndWaitForOK(ctx context.Context, cmd string) error {
 	respCh := make(chan bool, 1)
-	dl.reqCh <- &DFAMsg{Type: MsgWriteAndWaitForOK, Cmd: cmd}
+	dl.reqCh <- &DFAMsg{Type: MsgWriteAndWaitForOK, Cmd: cmd, RespCh: respCh}
 	select {
 	case ack, ok := <-respCh:
 		if ok && !ack {
@@ -124,6 +124,7 @@ func (dl *DFADownlink) Run() error {
 }
 
 func (dl *DFADownlink) handleDisconnected() State {
+	dl.up.logf("State: Disconnected")
 	// We are disconnected. Our only choice is to try to connect to the device.
 	// We do not accept any input in this node.
 	go dl.connect()
@@ -161,6 +162,7 @@ func (dl *DFADownlink) connect() {
 }
 
 func (dl *DFADownlink) handleConnecting() State {
+	dl.up.logf("State: Connecting")
 	for msg := range dl.reqCh {
 		switch msg.Type {
 		case MsgConnected:
@@ -192,6 +194,7 @@ func (dl *DFADownlink) handleConnecting() State {
 }
 
 func (dl *DFADownlink) handleConnected() State {
+	dl.up.logf("State: Connected")
 	go dl.readFromDevice(dl.conn)
 	return Normal
 }
@@ -208,6 +211,7 @@ func (dl *DFADownlink) readFromDevice(conn io.ReadWriteCloser) {
 		dl.up.logf("%s\n", txt)
 		if txt == "ok" {
 			// The firmware did not send us a lineno. Okay.
+			dl.up.logf("Sending MsgOK without a lineno...")
 			dl.reqCh <- &DFAMsg{Type: MsgOK}
 			continue
 		}
@@ -238,7 +242,11 @@ func (dl *DFADownlink) readFromDevice(conn io.ReadWriteCloser) {
 }
 
 func (dl *DFADownlink) handleNormal() State {
+	dl.up.logf("State: Normal")
 	wr := func(msg *DFAMsg) State {
+		if msg.RespCh == nil {
+			dl.up.Fatalf("RespCh == nil in MsgWriteAndWaitForOK message. Inconceivable!")
+		}
 		dl.pendingOKAck = msg.RespCh
 		go dl.write(dl.conn, msg.Cmd)
 		return WaitingForOK
@@ -246,6 +254,7 @@ func (dl *DFADownlink) handleNormal() State {
 	if len(dl.pendingWrites) > 0 {
 		// We have some pending write requests. Take one.
 		msg := dl.pendingWrites[0]
+		dl.pendingWrites = dl.pendingWrites[1:]
 		return wr(msg)
 	}
 	for msg := range dl.reqCh {
@@ -286,11 +295,15 @@ func (dl *DFADownlink) write(conn io.ReadWriteCloser, cmd string) {
 		}
 		dl.reqCh <- &DFAMsg{Type: MsgWritten, Err: err}
 	}()
+	if !strings.HasSuffix(cmd, "\n") {
+		cmd += "\n"
+	}
 	_, err = dl.conn.Write([]byte(cmd))
 	return
 }
 
 func (dl *DFADownlink) handleWaitingForOK() State {
+	dl.up.logf("State: WaitingForOK")
 	gotOK := false
 	gotWritten := false
 	for msg := range dl.reqCh {
@@ -318,15 +331,17 @@ func (dl *DFADownlink) handleWaitingForOK() State {
 			}
 			gotOK = true
 			if gotOK && gotWritten {
+				dl.up.logf("handleWaitingForOK: gotOK and we had gotWritten == true. Sending ack...")
 				dl.pendingOKAck <- true
 				dl.pendingOKAck = nil
+				dl.up.logf("handleWaitingForOK: ack sent. Transferring to Normal state")
 				return Normal
 			}
 			dl.up.logf("handleWaitingForOK: got OK, now waiting for MsgWritten.")
 		case MsgWriteAndWaitForOK:
 			// It's expected that new commands could arrive while we wait for OK. Adding them to the |pendingWrites| queue.
 			dl.pendingWrites = append(dl.pendingWrites, msg)
-			dl.up.logf("Added command %q to the queue. Current queue length: %d", len(dl.pendingWrites))
+			dl.up.logf("Added command %q to the queue. Current queue length: %d", msg.Cmd, len(dl.pendingWrites))
 			continue
 		case MsgWritten:
 			if gotWritten {
@@ -355,6 +370,7 @@ func (dl *DFADownlink) handleWaitingForOK() State {
 func (dl *DFADownlink) handleWaitingForWritten() State {
 	// We arrive to this state, when Disconnected was received while WaitingForOK. We need to wait until the write is completed
 	// before transferring to the Disconnected state to maintain the invariant that MsgWritten is only expected during WaitingForOK or WaitingForWritten.
+	dl.up.logf("State: WaitingForWritten")
 	for msg := range dl.reqCh {
 		switch msg.Type {
 		case MsgConnected:
