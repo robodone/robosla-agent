@@ -21,6 +21,8 @@ type DFADownlink struct {
 	reqCh        chan *DFAMsg
 	conn         io.ReadWriteCloser
 	pendingOKAck chan<- bool
+	// These are pending writes which we have not yet processed at all.
+	pendingWrites []*DFAMsg
 }
 
 func NewDFADownlink(up *Uplink, baudRate int) *DFADownlink {
@@ -30,12 +32,13 @@ func NewDFADownlink(up *Uplink, baudRate int) *DFADownlink {
 type State int
 
 const (
-	Terminated   = State(-1)
-	Disconnected = State(0)
-	Connecting   = State(1)
-	Connected    = State(2)
-	Normal       = State(3)
-	WaitingForOK = State(4)
+	Terminated        = State(-1)
+	Disconnected      = State(0)
+	Connecting        = State(1)
+	Connected         = State(2)
+	Normal            = State(3)
+	WaitingForOK      = State(4)
+	WaitingForWritten = State(5)
 )
 
 type MsgType int
@@ -46,6 +49,7 @@ const (
 	MsgDisconnected      = MsgType(3)
 	MsgOK                = MsgType(4)
 	MsgWriteAndWaitForOK = MsgType(5)
+	MsgWritten           = MsgType(6)
 )
 
 type DFAMsg struct {
@@ -109,6 +113,8 @@ func (dl *DFADownlink) Run() error {
 			st = dl.handleNormal()
 		case WaitingForOK:
 			st = dl.handleWaitingForOK()
+		case WaitingForWritten:
+			st = dl.handleWaitingForWritten()
 		default:
 			return fmt.Errorf("unknown state %v", st)
 		}
@@ -171,6 +177,8 @@ func (dl *DFADownlink) handleConnecting() State {
 			// This is a valid possibility, but we have to decline this request.
 			dl.up.logf("handleConnecting: unable to write a command (%q), because we are not connected. May be the printer is turned off?")
 			msg.RespCh <- false
+		case MsgWritten:
+			dl.up.Fatalf("handleConnecting: received MsgWritten. Inconceivable!")
 		default:
 			dl.up.Fatalf("handleConnecting: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -244,6 +252,8 @@ func (dl *DFADownlink) handleNormal() State {
 			dl.pendingOKAck = msg.RespCh
 			go dl.write(dl.conn, msg.Cmd)
 			return WaitingForOK
+		case MsgWritten:
+			dl.up.Fatalf("handleNormal: received MsgWritten. Inconceivable!")
 		default:
 			dl.up.Fatalf("handleNormal: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -263,4 +273,90 @@ func (dl *DFADownlink) write(conn io.ReadWriteCloser, cmd string) {
 	}()
 	_, err = dl.conn.Write([]byte(cmd))
 	return
+}
+
+func (dl *DFADownlink) handleWaitingForOK() State {
+	gotOK := false
+	gotWritten := false
+	for msg := range dl.reqCh {
+		switch msg.Type {
+		case MsgConnected:
+			dl.up.Fatalf("handleWaitingForOK: MsgConnected received. Inconceivable!")
+			return Terminated
+		case MsgIsConnected:
+			// We are connected.
+			msg.RespCh <- true
+		case MsgDisconnected:
+			dl.up.logf("handleWaitingForOK: received MsgDisconnected")
+			close(dl.pendingOKAck)
+			dl.pendingOKAck = nil
+			if gotWritten {
+				return Disconnected
+			} else {
+				// We need to wait until our write is complete (most likely, as a failed one)
+				return WaitingForWritten
+			}
+		case MsgOK:
+			if gotOK {
+				dl.up.logf("handleWaitingForOK: got duplicate OK. Mildly dangerous. Ignoring.")
+				continue
+			}
+			gotOK = true
+			if gotOK && gotWritten {
+				dl.pendingOKAck <- true
+				dl.pendingOKAck = nil
+				return Normal
+			}
+			dl.up.logf("handleWaitingForOK: got OK, now waiting for MsgWritten.")
+		case MsgWriteAndWaitForOK:
+			// It's expected that new commands could arrive while we wait for OK. Adding them to the |pendingWrites| queue.
+			dl.pendingWrites = append(dl.pendingWrites, msg)
+			dl.up.logf("Added command %q to the queue. Current queue length: %d", len(dl.pendingWrites))
+			continue
+		case MsgWritten:
+			if gotWritten {
+				dl.up.Fatalf("handleWaitingForOK: got duplicate MsgWritten. Inconceivable!")
+				return Terminated
+			}
+			gotWritten = true
+			if gotOK && gotWritten {
+				dl.pendingOKAck <- true
+				dl.pendingOKAck = nil
+				return Normal
+			}
+			dl.up.logf("handleWaitingForOK: got MsgWritten, now waiting for OK.")
+		default:
+			dl.up.Fatalf("handleWaitingForOK: unexpected message type: %v, full message: %+v", msg.Type, msg)
+		}
+	}
+	dl.up.Fatalf("handleWaitingForOK: reqCh is closed")
+	return Terminated
+}
+
+func (dl *DFADownlink) handleWaitingForWritten() State {
+	// We arrive to this state, when Disconnected was received while WaitingForOK. We need to wait until the write is completed
+	// before transferring to the Disconnected state to maintain the invariant that MsgWritten is only expected during WaitingForOK or WaitingForWritten.
+	for msg := range dl.reqCh {
+		switch msg.Type {
+		case MsgConnected:
+			dl.up.Fatalf("handleWaitingForWritten: MsgConnected received. Inconceivable!")
+			return Terminated
+		case MsgIsConnected:
+			// We are not connected; we are transferring to the disconnected state (although, not there yet)
+			msg.RespCh <- false
+		case MsgDisconnected:
+			dl.up.Fatalf("handleWaitingForWritten: MsgDisconnected received. Inconceivable!")
+		case MsgOK:
+			dl.up.Fatalf("handleWaitingForWritten: MsgOK received. Inconceivable!")
+		case MsgWriteAndWaitForOK:
+			dl.up.logf("handleWaitingForWritten: unable to write a command (%q), because we are not connected. May be the printer was just turned off?")
+			msg.RespCh <- false
+		case MsgWritten:
+			return Disconnected
+		default:
+			dl.up.Fatalf("handleWaitingForWritten: unexpected message type: %v, full message: %+v", msg.Type, msg)
+		}
+	}
+	dl.up.Fatalf("handleWaitingForWritten: reqCh is closed")
+	return Terminated
 }
