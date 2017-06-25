@@ -89,7 +89,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 		if progress > lastProgress {
 			now := time.Now()
 			elapsed := now.Sub(start)
-			remaining := time.Duration(float64(elapsed) * 100 / progress)
+			remaining := time.Duration(float64(elapsed) * (100 - progress) / progress)
 			exe.up.NotifyJobProgress(jobName, progress, elapsed, remaining)
 			lastProgress = progress
 		}
