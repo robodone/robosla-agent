@@ -50,6 +50,7 @@ const (
 	MsgOK                = MsgType(4)
 	MsgWriteAndWaitForOK = MsgType(5)
 	MsgWritten           = MsgType(6)
+	MsgResend            = MsgType(7)
 )
 
 type DFAMsg struct {
@@ -179,6 +180,8 @@ func (dl *DFADownlink) handleConnecting() State {
 			msg.RespCh <- false
 		case MsgWritten:
 			dl.up.Fatalf("handleConnecting: received MsgWritten. Inconceivable!")
+		case MsgResend:
+			dl.up.Fatalf("handleConnecting: received MsgResend. Inconceivable!")
 		default:
 			dl.up.Fatalf("handleConnecting: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -262,6 +265,10 @@ func (dl *DFADownlink) handleNormal() State {
 			return wr(msg)
 		case MsgWritten:
 			dl.up.Fatalf("handleNormal: received MsgWritten. Inconceivable!")
+		case MsgResend:
+			// It is possible to receive MsgResend, if we screwed up something earlier. Or may be there was some glitch on the wire.
+			// Currently, we don't yet support line numbers, so it's impossible to implement.
+			dl.up.Fatalf("handleNormal: MsgResend is not implemented")
 		default:
 			dl.up.Fatalf("handleNormal: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -333,6 +340,10 @@ func (dl *DFADownlink) handleWaitingForOK() State {
 				return Normal
 			}
 			dl.up.logf("handleWaitingForOK: got MsgWritten, now waiting for OK.")
+		case MsgResend:
+			// It is possible to receive MsgResend, if we screwed up something earlier. Or may be there was some glitch on the wire.
+			// Currently, we don't yet support line numbers, so it's impossible to implement.
+			dl.up.Fatalf("handleWaitingForOK: MsgResend is not implemented")
 		default:
 			dl.up.Fatalf("handleWaitingForOK: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -361,6 +372,8 @@ func (dl *DFADownlink) handleWaitingForWritten() State {
 			msg.RespCh <- false
 		case MsgWritten:
 			return Disconnected
+		case MsgResend:
+			dl.up.Fatalf("handleWaitingForWritten: MsgResend received. Inconceivable!")
 		default:
 			dl.up.Fatalf("handleWaitingForWritten: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
