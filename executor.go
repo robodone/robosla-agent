@@ -46,7 +46,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	exe.up.SetJobName(jobName)
 	defer exe.up.SetJobName("")
 
-	cmds, err := loadGcode(gcodePath)
+	cmds, numFrames, err := loadGcode(gcodePath)
 	if err != nil {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
 	}
@@ -65,7 +65,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 		if err == nil {
 			return
 		}
-		exe.up.NotifyJobProgress(jobName, 0)
+		exe.up.NotifyJobProgress(jobName, 0, 0, 0)
 		// Don't block it for more than 70*3 seconds.
 		ctx, _ := context.WithTimeout(context.Background(), 70*time.Second)
 		// Best effort.
@@ -77,6 +77,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	}()
 
 	var lastProgress float64
+	start := time.Now()
 	for i := 0; i < len(cmds); i++ {
 		if isCanceled(ctx) {
 			return context.Canceled
@@ -86,14 +87,17 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 			progress = 0.05
 		}
 		if progress > lastProgress {
-			exe.up.NotifyJobProgress(jobName, progress)
+			now := time.Now()
+			elapsed := now.Sub(start)
+			remaining := time.Duration(float64(elapsed) / progress)
+			exe.up.NotifyJobProgress(jobName, progress, elapsed, remaining)
 			lastProgress = progress
 		}
 		if cmds[i].IsHost() {
 			// We should handle host command failures gracefully. At the very least,
 			// we'll need to turn off the UV light.
 			// But later. Later.
-			if err := cmds[i].Run(jobName, exe.up); err != nil {
+			if err := cmds[i].Run(jobName, numFrames, exe.up); err != nil {
 				return fmt.Errorf("failed to execute command %+v: %v", cmds[i], err)
 			}
 			continue
@@ -151,13 +155,12 @@ func (exe *Executor) FetchJob(ctx context.Context, jobURL string) (gcodePath str
 	return
 }
 
-func loadGcode(fname string) ([]*Cmd, error) {
+func loadGcode(fname string) (cmds []*Cmd, numFrames int, err error) {
 	data, err := ioutil.ReadFile(fname)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	baseDir := path.Dir(fname)
-	var cmds []*Cmd
 	for i, line := range strings.Split(string(data), "\n") {
 		lineno := i + 1
 		// Cut comments. They start with ;
@@ -172,11 +175,17 @@ func loadGcode(fname string) ([]*Cmd, error) {
 		}
 		cmd, err := parseGcodeCommand(baseDir, line)
 		if err != nil {
-			return nil, fmt.Errorf("%s:%d: invalid gcode: %v", fname, lineno, err)
+			return nil, 0, fmt.Errorf("%s:%d: invalid gcode: %v", fname, lineno, err)
+		}
+		if cmd.Type == "M" && cmd.Idx == 7820 {
+			frameIdx := int(cmd.Dict['S'])
+			if numFrames < frameIdx {
+				numFrames = frameIdx
+			}
 		}
 		cmds = append(cmds, cmd)
 	}
-	return cmds, nil
+	return
 }
 
 func (exe *Executor) getURL(ctx context.Context, srcURL string) (res []byte, err error) {
@@ -375,7 +384,7 @@ func (cmd *Cmd) IsHost() bool {
 	return cmd.Type == "M" && cmd.Idx == 7820
 }
 
-func (cmd *Cmd) Run(jobName string, up *Uplink) error {
+func (cmd *Cmd) Run(jobName string, numFrames int, up *Uplink) error {
 	if cmd.Type != "M" || cmd.Idx != 7820 {
 		return fmt.Errorf("unsupported host command %s%d", cmd.Type, cmd.Idx)
 	}
@@ -390,7 +399,7 @@ func (cmd *Cmd) Run(jobName string, up *Uplink) error {
 	if err != nil {
 		return fmt.Errorf("failed to display a frame: %v, %v", string(data), err)
 	}
-	up.NotifyFrameIndex(jobName, frameIdx)
+	up.NotifyFrameIndex(jobName, frameIdx, numFrames)
 	return nil
 }
 

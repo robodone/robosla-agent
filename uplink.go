@@ -149,19 +149,22 @@ func (up *Uplink) NotifyJobDone(jobName string, success bool, comment string) {
 	}))
 }
 
-func (up *Uplink) NotifyJobProgress(jobName string, progress float64) {
+func (up *Uplink) NotifyJobProgress(jobName string, progress float64, elapsed, remaining time.Duration) {
 	up.Notify(up.bestJson(&device_api.UplinkMessage{
-		Type:     "notify-job-progress",
-		JobName:  jobName,
-		Progress: progress,
+		Type:      "notify-job-progress",
+		JobName:   jobName,
+		Progress:  progress,
+		Elapsed:   elapsed,
+		Remaining: remaining,
 	}))
 }
 
-func (up *Uplink) NotifyFrameIndex(jobName string, frameIndex int) {
+func (up *Uplink) NotifyFrameIndex(jobName string, frameIndex, numFrames int) {
 	up.Notify(up.bestJson(&device_api.UplinkMessage{
 		Type:       "notify-frame-index",
 		JobName:    jobName,
 		FrameIndex: frameIndex,
+		NumFrames:  numFrames,
 	}))
 }
 func (up *Uplink) logf(format string, args ...interface{}) {
