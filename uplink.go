@@ -172,7 +172,7 @@ func (up *Uplink) logf(format string, args ...interface{}) {
 
 func (up *Uplink) Fatalf(format string, args ...interface{}) {
 	up.logf("FATAL: "+format, args...)
-	time.Sleep(time.Second)
+	time.Sleep(5 * time.Second)
 	os.Exit(1)
 }
 
