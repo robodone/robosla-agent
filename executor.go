@@ -46,10 +46,13 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	exe.up.SetJobName(jobName)
 	defer exe.up.SetJobName("")
 
+	exe.up.NotifyJobProgress(jobName, 0.01 /*progress*/, 0 /*elapsed*/, 0 /*remaining*/)
 	cmds, numFrames, err := loadGcode(gcodePath)
 	if err != nil {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
 	}
+	exe.up.NotifyJobProgress(jobName, 0.02 /*progress*/, 0 /*elapsed*/, 0 /*remaining*/)
+	exe.up.NotifyFrameIndex(jobName, 0, numFrames)
 	if isCanceled(ctx) {
 		return context.Canceled
 	}
