@@ -20,11 +20,12 @@ type Uplink struct {
 	client        *device_api.Client
 	deviceName    string
 	// This is likely not an appropriate place, but I don't have good ideas right now.
-	jobName string
+	jobName  string
+	notifyCh chan string
 }
 
 func NewUplink(apiServerAddr string) *Uplink {
-	return &Uplink{apiServerAddr: apiServerAddr, nd: pubsub.NewNode()}
+	return &Uplink{apiServerAddr: apiServerAddr, nd: pubsub.NewNode(), notifyCh: make(chan string, 10)}
 }
 
 func (up *Uplink) getClient() *device_api.Client {
@@ -53,6 +54,7 @@ func (up *Uplink) SetJobName(jobName string) {
 }
 
 func (up *Uplink) Run() {
+	go up.runNotify()
 	for {
 		if up.getClient() != nil {
 			up.setClientAndDeviceName(nil, "")
@@ -114,23 +116,48 @@ func (up *Uplink) Sub(paths ...string) (*pubsub.Sub, error) {
 
 // Notify makes best effort to notify about the received terminal output or errors.
 func (up *Uplink) Notify(out string) {
-	// We don't want to block anyone with these updates.
-	// Starting goroutines mean that the updates may potentially be
-	// delivered out of order, but we don't enforce it anyway.
-	go up.notify(out)
+	up.notifyCh <- out
 }
 
-func (up *Uplink) notify(out string) {
-	client := up.getClient()
-	if client == nil {
-		// We are not connected. Two options: postpone sending those updates,
-		// or just forget about them. Let's just forget. They are low value.
-		return
-	}
-	err := client.SendTerminalOutput(out)
-	if err != nil {
-		// TODO(krasin): rate limit messages from here.
-		log.Printf("Failed to send terminal output: %v", err)
+func (up *Uplink) runNotify() {
+	var pending []string
+	inProgress := false
+	doneCh := make(chan bool)
+	for {
+		var out string
+		if inProgress {
+			select {
+			case out = <-up.notifyCh:
+			case <-doneCh:
+				inProgress = false
+				if len(pending) == 0 {
+					continue
+				}
+				out = pending[0]
+				pending = pending[1:]
+			}
+		} else {
+			out = <-up.notifyCh
+		}
+		if inProgress {
+			pending = append(pending, out)
+			continue
+		}
+		inProgress = true
+		go func(out string) {
+			defer func() { doneCh <- true }()
+			client := up.getClient()
+			if client == nil {
+				// We are not connected. Two options: postpone sending those updates,
+				// or just forget about them. Let's just forget. They are low value.
+				return
+			}
+			err := client.SendTerminalOutput(out)
+			if err != nil {
+				// TODO(krasin): rate limit messages from here.
+				log.Printf("Failed to send terminal output: %v", err)
+			}
+		}(out)
 	}
 }
 
