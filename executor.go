@@ -47,6 +47,14 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	defer exe.up.SetJobName("")
 
 	exe.up.NotifyJobProgress(jobName, 0.01 /*progress*/, 0 /*elapsed*/, 0 /*remaining*/)
+
+	// Home the printer before the download is completed. This will save us some time later.
+	// Note: this is incompatible with other devices, like robotic arms. We will care about that later.
+	// It will likely have different executors for each device kind.
+	if err := exe.down.WriteAndWaitForOK(ctx, "G28 Z0"); err != nil {
+		exe.up.logf("Failed to home the printer. Error: %v", err)
+	}
+
 	cmds, numFrames, err := loadGcode(gcodePath)
 	if err != nil {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
@@ -81,18 +89,32 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 
 	var lastProgress float64
 	start := time.Now()
+	var profileStart time.Time
+	skipN := 10
 	for i := 0; i < len(cmds); i++ {
 		if isCanceled(ctx) {
 			return context.Canceled
 		}
-		progress := float64(int((i*1000)/len(cmds))) / 10
+		// Skip first skipN commands for to make estimates closer to the reality.
+		if i >= skipN && profileStart.IsZero() {
+			profileStart = time.Now()
+		}
+		progress := float64(int(float64(i*1000)/float64(len(cmds)))) / 10
 		if progress == 0 {
 			progress = 0.05
 		}
 		if progress > lastProgress {
 			now := time.Now()
 			elapsed := now.Sub(start)
-			remaining := time.Duration(float64(elapsed) * (100 - progress) / progress)
+			var remaining time.Duration
+			if !profileStart.IsZero() {
+				profileElapsed := now.Sub(profileStart)
+				profileProgress := 100 * float64(i-skipN) / float64(len(cmds)-skipN)
+				if profileProgress >= 0.3 {
+					remaining = time.Duration(float64(profileElapsed) * (100 - profileProgress) / profileProgress)
+				}
+			}
+
 			exe.up.NotifyJobProgress(jobName, progress, elapsed, remaining)
 			lastProgress = progress
 		}
