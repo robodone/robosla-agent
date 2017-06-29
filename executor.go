@@ -14,6 +14,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
@@ -51,20 +52,29 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	// Home the printer before the download is completed. This will save us some time later.
 	// Note: this is incompatible with other devices, like robotic arms. We will care about that later.
 	// It will likely have different executors for each device kind.
-	if err := exe.down.WriteAndWaitForOK(ctx, "G28 Z0"); err != nil {
-		exe.up.logf("Failed to home the printer. Error: %v", err)
-	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := exe.down.WriteAndWaitForOK(ctx, "G28 Z0"); err != nil {
+			exe.up.logf("Failed to home the printer. Error: %v", err)
+		}
+	}()
 
 	cmds, numFrames, err := loadGcode(gcodePath)
 	if err != nil {
 		return fmt.Errorf("could not load gcode from %s: %v", gcodePath, err)
 	}
+
 	exe.up.NotifyJobProgress(jobName, 0.02 /*progress*/, 0 /*elapsed*/, 0 /*remaining*/)
 	exe.up.NotifyFrameIndex(jobName, 0, numFrames)
 	if isCanceled(ctx) {
 		return context.Canceled
 	}
 	exe.up.logf("Loaded %d gcode commands from %s.", len(cmds), gcodePath)
+	// Wait until it's homed.
+	wg.Wait()
+
 	if !exe.down.WaitForConnection(time.Minute) {
 		return ErrNoDownlinkConnection
 	}
