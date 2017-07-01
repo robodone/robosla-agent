@@ -55,6 +55,7 @@ func (up *Uplink) SetJobName(jobName string) {
 
 func (up *Uplink) Run() {
 	go up.runNotify()
+	go up.runKeepAlive()
 	for {
 		if up.getClient() != nil {
 			up.setClientAndDeviceName(nil, "")
@@ -158,6 +159,14 @@ func (up *Uplink) runNotify() {
 				log.Printf("Failed to send terminal output: %v", err)
 			}
 		}(out)
+	}
+}
+
+func (up *Uplink) runKeepAlive() {
+	for {
+		up.WaitForConnection()
+		up.logf("keep-alive")
+		time.Sleep(time.Minute)
 	}
 }
 
