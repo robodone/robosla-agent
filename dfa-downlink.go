@@ -120,7 +120,6 @@ func (dl *DFADownlink) Run() error {
 			return fmt.Errorf("unknown state %v", st)
 		}
 	}
-	return nil
 }
 
 func (dl *DFADownlink) handleDisconnected() State {
@@ -178,7 +177,7 @@ func (dl *DFADownlink) handleConnecting() State {
 		case MsgWriteAndWaitForOK:
 			// We have received a request to send a command, but we are not connected.
 			// This is a valid possibility, but we have to decline this request.
-			dl.up.logf("handleConnecting: unable to write a command (%q), because we are not connected. May be the printer is turned off?")
+			dl.up.logf("handleConnecting: unable to write a command (%q), because we are not connected. May be the printer is turned off?", msg.Cmd)
 			msg.RespCh <- false
 		case MsgWritten:
 			dl.up.Fatalf("handleConnecting: received MsgWritten. Inconceivable!")
@@ -384,7 +383,7 @@ func (dl *DFADownlink) handleWaitingForWritten() State {
 		case MsgOK:
 			dl.up.Fatalf("handleWaitingForWritten: MsgOK received. Inconceivable!")
 		case MsgWriteAndWaitForOK:
-			dl.up.logf("handleWaitingForWritten: unable to write a command (%q), because we are not connected. May be the printer was just turned off?")
+			dl.up.logf("handleWaitingForWritten: unable to write a command (%q), because we are not connected. May be the printer was just turned off?", msg.Cmd)
 			msg.RespCh <- false
 		case MsgWritten:
 			return Disconnected
