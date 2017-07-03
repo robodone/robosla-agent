@@ -12,7 +12,7 @@ if [[ -z  "$SUFFIX"  ]] ; then
     exit 1
 fi
 
-readonly RELEASE="$(date +%Y-%m-%d)-$1"
+readonly RELEASE="V-$(date +%Y-%m-%d)-$1"
 echo "Making a release ${RELEASE}"
 
 echo "Building from source ..."
