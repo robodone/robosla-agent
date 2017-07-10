@@ -90,7 +90,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 		// Don't block it for more than 70*3 seconds.
 		ctx, _ := context.WithTimeout(context.Background(), 70*time.Second)
 		// Best effort.
-		for _, cmd := range []string{"M107", "G1 Z150 F150", "M84"} {
+		for _, cmd := range []string{"M107", "G1 Z170 F200", "M84"} {
 			if err := exe.down.WriteAndWaitForOK(ctx, cmd); err != nil {
 				exe.up.logf("Failed to run abort procedures. Error: %v", err)
 			}
