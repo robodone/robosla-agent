@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -67,6 +68,14 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			arg2 = parts[2]
 		}
 		switch verb {
+		case "bash":
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := sh.Bash(ctx, parts[1:])
+			cancel()
+			if err != nil {
+				sh.up.logf("Failed to run %q: %v", parts[1:], err)
+			}
+			continue
 		case "cancel":
 			sh.cancelJob()
 			continue
@@ -161,4 +170,19 @@ func (sh *Shell) cancelJob() {
 	}
 	cancel()
 	sh.up.logf("Cancelation is requested.")
+}
+
+func (sh *Shell) Bash(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New("empty command line")
+	}
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	data, err := cmd.CombinedOutput()
+	if len(data) > 0 {
+		if len(data) > 8000 {
+			data = data[:8000]
+		}
+		sh.up.logf("Output: %s", string(data))
+	}
+	return err
 }
