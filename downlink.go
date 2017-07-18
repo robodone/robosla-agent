@@ -297,8 +297,8 @@ func (dl *RealDownlink) readFromDevice(conn io.Reader) {
 		if strings.HasPrefix(txt, "ok ") {
 			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
 			if err != nil {
-				dl.up.logf("Failed to parse a line number from an ok response %q: %v", txt, err)
-				continue
+				dl.up.logf("Failed to parse a line number from an ok response %q: %v. Just ignoring the lineno.", txt, err)
+				lineno = 0
 			}
 			dl.reqCh <- &Request{Type: OKType, Lineno: int(lineno)}
 			continue
