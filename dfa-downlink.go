@@ -6,12 +6,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/samofly/serial"
 )
+
+var ErrPrinterDeviceNotFound = errors.New("printer device is not found. May be it's turned off?")
+var ErrNoDownlinkConnection = errors.New("no downlink connection to the device")
+var ErrConnectionReset = errors.New("downlink connection was reset")
+
+type Downlink interface {
+	WriteAndWaitForOK(ctx context.Context, cmd string) error
+	WaitForConnection(wait time.Duration) bool
+	Connected() bool
+}
 
 // DFADownlink is empowered by Deterministic Finite Automata to track
 // all states, requests and connections.
@@ -217,8 +228,8 @@ func (dl *DFADownlink) readFromDevice(conn io.ReadWriteCloser) {
 		if strings.HasPrefix(txt, "ok ") {
 			lineno, err := strconv.ParseUint(txt[3:], 10, 64)
 			if err != nil {
-				dl.up.logf("Failed to parse a line number from an ok response %q: %v", txt, err)
-				continue
+				dl.up.logf("Failed to parse a line number from an ok response %q: %v. Just ignoring the lineno.", txt, err)
+				lineno = 0
 			}
 			dl.reqCh <- &DFAMsg{Type: MsgOK, Lineno: int(lineno)}
 			continue
@@ -395,4 +406,25 @@ func (dl *DFADownlink) handleWaitingForWritten() State {
 	}
 	dl.up.Fatalf("handleWaitingForWritten: reqCh is closed")
 	return Terminated
+}
+
+// Find tty dev for the printer. As we work in a relatively stable environment,
+// it's going to be either /dev/ttyACM? or /dev/ttyUSB?. The numbers will also likely be low, like 0 or 1.
+// For now, just have a short list and go through it.
+func findTTYDev() (string, error) {
+	for _, ttyDev := range []string{
+		"/dev/ttyACM0",
+		"/dev/ttyACM1",
+		"/dev/ttyACM2",
+		"/dev/ttyUSB0",
+		"/dev/ttyUSB1",
+		"/dev/ttyUSB2",
+	} {
+		_, err := os.Stat(ttyDev)
+		if err == nil {
+			// We have found the device we want.
+			return ttyDev, nil
+		}
+	}
+	return "", ErrPrinterDeviceNotFound
 }
