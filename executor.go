@@ -21,12 +21,13 @@ import (
 )
 
 type Executor struct {
-	up   *Uplink
-	down Downlink
+	up      *Uplink
+	down    Downlink
+	virtual bool
 }
 
-func NewExecutor(up *Uplink, down Downlink) *Executor {
-	return &Executor{up: up, down: down}
+func NewExecutor(up *Uplink, down Downlink, virtual bool) *Executor {
+	return &Executor{up: up, down: down, virtual: virtual}
 }
 
 func isCanceled(ctx context.Context) bool {
@@ -132,7 +133,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 			// We should handle host command failures gracefully. At the very least,
 			// we'll need to turn off the UV light.
 			// But later. Later.
-			if err := cmds[i].Run(jobName, numFrames, exe.up); err != nil {
+			if err := cmds[i].Run(jobName, numFrames, exe.up, exe.virtual); err != nil {
 				return fmt.Errorf("failed to execute command %+v: %v", cmds[i], err)
 			}
 			continue
@@ -419,20 +420,22 @@ func (cmd *Cmd) IsHost() bool {
 	return cmd.Type == "M" && cmd.Idx == 7820
 }
 
-func (cmd *Cmd) Run(jobName string, numFrames int, up *Uplink) error {
+func (cmd *Cmd) Run(jobName string, numFrames int, up *Uplink, virtual bool) error {
 	if cmd.Type != "M" || cmd.Idx != 7820 {
 		return fmt.Errorf("unsupported host command %s%d", cmd.Type, cmd.Idx)
 	}
 	// Show a new frame on the LCD.
 	frameIdx := int(cmd.Dict['S'])
 	fname := path.Join(cmd.BaseDir, fmt.Sprintf("frame-%06d.png", frameIdx))
-	data, err := exec.Command("killall", "fbi").CombinedOutput()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "killall fbi: %v, %v\n", string(data), err)
-	}
-	data, err = exec.Command("fbi", "-noverbose", "-a", "-T", "1", fname).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to display a frame: %v, %v", string(data), err)
+	if !virtual {
+		data, err := exec.Command("killall", "fbi").CombinedOutput()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "killall fbi: %v, %v\n", string(data), err)
+		}
+		data, err = exec.Command("fbi", "-noverbose", "-a", "-T", "1", fname).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to display a frame: %v, %v", string(data), err)
+		}
 	}
 	up.NotifyFrameIndex(jobName, frameIdx, numFrames)
 	return nil

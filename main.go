@@ -62,7 +62,7 @@ func main() {
 		down = dfaDown
 	}
 
-	sh := NewShell(up, down)
+	sh := NewShell(up, down, *virtual)
 	go sh.Run()
 
 	// Never exit
