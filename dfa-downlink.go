@@ -62,6 +62,7 @@ const (
 	MsgWriteAndWaitForOK = MsgType(5)
 	MsgWritten           = MsgType(6)
 	MsgResend            = MsgType(7)
+	MsgSomeReply         = MsgType(8)
 )
 
 type DFAMsg struct {
@@ -194,6 +195,8 @@ func (dl *DFADownlink) handleConnecting() State {
 			dl.up.Fatalf("handleConnecting: received MsgWritten. Inconceivable!")
 		case MsgResend:
 			dl.up.Fatalf("handleConnecting: received MsgResend. Inconceivable!")
+		case MsgSomeReply:
+			// Just ignore.
 		default:
 			dl.up.Fatalf("handleConnecting: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -245,6 +248,7 @@ func (dl *DFADownlink) readFromDevice(conn io.ReadWriteCloser) {
 			dl.reqCh <- &DFAMsg{Type: MsgResend, Lineno: int(lineno)}
 			continue
 		}
+		dl.reqCh <- &DFAMsg{Type: MsgSomeReply}
 	}
 	if err := in.Err(); err != nil {
 		dl.up.logf("readFromDevice: %v", err)
@@ -288,6 +292,8 @@ func (dl *DFADownlink) handleNormal() State {
 			// It is possible to receive MsgResend, if we screwed up something earlier. Or may be there was some glitch on the wire.
 			// Currently, we don't yet support line numbers, so it's impossible to implement.
 			dl.up.Fatalf("handleNormal: MsgResend is not implemented")
+		case MsgSomeReply:
+			// Just ignore.
 		default:
 			dl.up.Fatalf("handleNormal: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -314,9 +320,16 @@ func (dl *DFADownlink) write(conn io.ReadWriteCloser, cmd string) {
 
 func (dl *DFADownlink) handleWaitingForOK() State {
 	dl.up.logf("State: WaitingForOK")
+	start := time.Now()
 	gotOK := false
 	gotWritten := false
+	gotSomeReply := false
 	for msg := range dl.reqCh {
+		dur := time.Now().Sub(start)
+		if dur > 10*time.Second && gotSomeReply && !gotOK {
+			dl.up.logf("handleWaitingForOK: %v passed, some reply (!OK) received, consider the command is accepted", dur)
+			gotOK = true
+		}
 		switch msg.Type {
 		case MsgConnected:
 			dl.up.Fatalf("handleWaitingForOK: MsgConnected received. Inconceivable!")
@@ -369,6 +382,8 @@ func (dl *DFADownlink) handleWaitingForOK() State {
 			// It is possible to receive MsgResend, if we screwed up something earlier. Or may be there was some glitch on the wire.
 			// Currently, we don't yet support line numbers, so it's impossible to implement.
 			dl.up.Fatalf("handleWaitingForOK: MsgResend is not implemented")
+		case MsgSomeReply:
+			gotSomeReply = true
 		default:
 			dl.up.Fatalf("handleWaitingForOK: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
@@ -400,6 +415,8 @@ func (dl *DFADownlink) handleWaitingForWritten() State {
 			return Disconnected
 		case MsgResend:
 			dl.up.Fatalf("handleWaitingForWritten: MsgResend received. Inconceivable!")
+		case MsgSomeReply:
+			// Just ignore
 		default:
 			dl.up.Fatalf("handleWaitingForWritten: unexpected message type: %v, full message: %+v", msg.Type, msg)
 		}
