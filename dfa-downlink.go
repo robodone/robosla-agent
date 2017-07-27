@@ -326,7 +326,9 @@ func (dl *DFADownlink) handleWaitingForOK() State {
 	gotSomeReply := false
 	for msg := range dl.reqCh {
 		dur := time.Now().Sub(start)
-		if dur > 10*time.Second && gotSomeReply && !gotOK {
+		// 10 seconds was not enough; it confused things too often.
+		// It's not fully understood what exactly was wrong.
+		if dur > 60*time.Second && gotSomeReply && !gotOK {
 			dl.up.logf("handleWaitingForOK: %v passed, some reply (!OK) received, consider the command is accepted", dur)
 			gotOK = true
 		}
