@@ -39,6 +39,23 @@ func isCanceled(ctx context.Context) bool {
 	}
 }
 
+func (exe *Executor) ExecuteFewCommands(ctx context.Context, cmds ...string) (err error) {
+	if !exe.down.Connected() {
+		return errors.New("can't execute commands: printer not connected")
+	}
+	for i := 0; i < len(cmds); i++ {
+		if isCanceled(ctx) {
+			return context.Canceled
+		}
+		// TODO: support host commands this way.
+		err := exe.down.WriteAndWaitForOK(ctx, cmds[i])
+		if err != nil {
+			return fmt.Errorf("failed to write a command: %v", err)
+		}
+	}
+	return nil
+}
+
 func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string) (err error) {
 	if !exe.down.Connected() {
 		return errors.New("can't execute gcode: printer not connected")

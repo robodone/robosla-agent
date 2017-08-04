@@ -79,6 +79,22 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 		case "cancel":
 			sh.cancelJob()
 			continue
+		case "drop":
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := sh.exe.ExecuteFewCommands(ctx, "M107 P1", "G4 P50", "M106 P1")
+			cancel()
+			if err != nil {
+				sh.up.logf("Failed to grip: %v", err)
+			}
+			continue
+		case "grip":
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := sh.exe.ExecuteFewCommands(ctx, "M107", "G4 P50", "M106")
+			cancel()
+			if err != nil {
+				sh.up.logf("Failed to grip: %v", err)
+			}
+			continue
 		case "fetch-and-print":
 			// print <jobName> <archiveURL>
 			ctx, err := sh.getNewJobContext()
