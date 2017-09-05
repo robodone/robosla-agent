@@ -210,7 +210,10 @@ func (up *Uplink) logf(format string, args ...interface{}) {
 }
 
 func (up *Uplink) Fatalf(format string, args ...interface{}) {
+	// Allow robosla agent to setup (useful for the Fatalf calls happening in the very beginning of the program)
+	time.Sleep(5 * time.Second)
 	up.logf("FATAL: "+format, args...)
+	// Allow uplink to write to websocket.
 	time.Sleep(5 * time.Second)
 	os.Exit(1)
 }
