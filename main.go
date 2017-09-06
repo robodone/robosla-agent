@@ -19,6 +19,9 @@ var (
 	apiServer   = flag.String("api_server", "", "Address of the API server")
 	virtual     = flag.Bool("virtual", false, "If specified, the printer will simulate a connection to a printer.")
 	speedup     = flag.Float64("speedup", 10, "Speedup for --virtual mode")
+	deviceType  = flag.String("device_type", "usb-gcode", "Device type. Default value (usb-gcode) covers most common 3d printers / CNC machines based on g-code. Another possible value: ur3 for Universal Robots UR3.")
+	ur3Host     = flag.String("ur3_host", "", "UR3 robot host (only used if -device_type=ur3)")
+	ur3Port     = flag.Int("ur3_port", 30002, "UR3 port (only used if -device_type=ur3)")
 )
 
 func failf(format string, args ...interface{}) {
@@ -51,17 +54,34 @@ func main() {
 	go up.Run()
 
 	var down Downlink
-	if *virtual {
-		down = NewVirtualDownlink(up, *speedup)
-	} else {
-		/*realDown := NewRealDownlink(up, *baudRate)
-		go realDown.Run()
-		down = realDown*/
-		dfaDown := NewDFADownlink(up, *baudRate)
-		go dfaDown.Run()
-		down = dfaDown
+	switch *deviceType {
+	case "usb-gcode":
+		if *virtual {
+			down = NewVirtualDownlink(up, *speedup)
+		} else {
+			/*realDown := NewRealDownlink(up, *baudRate)
+			go realDown.Run()
+			down = realDown*/
+			dfaDown := NewDFADownlink(up, *baudRate)
+			go dfaDown.Run()
+			down = dfaDown
+		}
+	case "ur3":
+		if *ur3Host == "" {
+			up.Fatalf("-ur3_host not specified")
+		}
+		if *ur3Port == 0 {
+			up.Fatalf("-ur3_port not specified")
+		}
+		if *virtual {
+			up.Fatalf("virtual UR3 is not supported")
+		}
+		ur3Down := NewUR3Downlink(up, *ur3Host, *ur3Port)
+		go ur3Down.Run()
+		down = ur3Down
+	default:
+		up.Fatalf("Unsupported -device_type value: %q", *deviceType)
 	}
-
 	sh := NewShell(up, down, *virtual)
 	go sh.Run()
 
