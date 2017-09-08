@@ -11,12 +11,12 @@ import (
 )
 
 type UR3Downlink struct {
-	up    *Uplink
-	host  string
-	port  int
-	reqCh chan *DFAMsg
-	conn  io.ReadWriteCloser
-	// pendingOKAck chan<- bool
+	up           *Uplink
+	host         string
+	port         int
+	reqCh        chan *DFAMsg
+	conn         io.ReadWriteCloser
+	pendingOKAck chan<- bool
 	// These are pending writes which we have not yet processed at all.
 	pendingWrites []*DFAMsg
 }
@@ -60,9 +60,7 @@ func (dl *UR3Downlink) WriteAndWaitForOK(ctx context.Context, cmd string) error 
 
 func (dl *UR3Downlink) Run() (err error) {
 	defer func() {
-		if err != nil {
-			dl.up.logf("UR3Downlink.Run failed: %v", err)
-		}
+		dl.up.logf("UR3Downlink.Run failed, err: %v", err)
 	}()
 	st := Disconnected
 	for {
@@ -154,7 +152,9 @@ func (dl *UR3Downlink) readFromDevice(conn io.ReadWriteCloser) {
 	defer func() {
 		// Most likely, the connection is already closed, but we make the best effort, if it is not.
 		conn.Close()
+		dl.up.logf("UR3Downlink.readFromDevice, sending MsgDisconnected ...")
 		dl.reqCh <- &DFAMsg{Type: MsgDisconnected}
+		dl.up.logf("UR3Downlink.readFromDevice, MsgDisconnected sent")
 	}()
 	buf := make([]byte, 1024)
 	// Just read everything and immediately discard it.
@@ -163,6 +163,7 @@ func (dl *UR3Downlink) readFromDevice(conn io.ReadWriteCloser) {
 	for {
 		_, err := conn.Read(buf)
 		if err != nil {
+			dl.up.logf("UR3Downlink.readFromDevice, read error: %v", err)
 			return
 		}
 	}
@@ -174,9 +175,9 @@ func (dl *UR3Downlink) handleNormal() State {
 		if msg.RespCh == nil {
 			dl.up.Fatalf("RespCh == nil in MsgWriteAndWaitForOK message. Inconceivable!")
 		}
-		//dl.pendingOKAck = msg.RespCh
+		dl.pendingOKAck = msg.RespCh
 		go dl.write(dl.conn, msg.Cmd)
-		return WaitingForWritten
+		return WaitingForOK
 	}
 	if len(dl.pendingWrites) > 0 {
 		// We have some pending write requests. Take one.
@@ -243,6 +244,8 @@ func (dl *UR3Downlink) handleWaitingForOK() State {
 			msg.RespCh <- true
 		case MsgDisconnected:
 			dl.up.logf("handleWaitingForOK: received MsgDisconnected")
+			close(dl.pendingOKAck)
+			dl.pendingOKAck = nil
 			// We need to wait until our write is complete (most likely, as a failed one)
 			return WaitingForWritten
 		case MsgWriteAndWaitForOK:
@@ -251,6 +254,8 @@ func (dl *UR3Downlink) handleWaitingForOK() State {
 			dl.up.logf("Added command %q to the queue. Current queue length: %d", msg.Cmd, len(dl.pendingWrites))
 			continue
 		case MsgWritten:
+			dl.pendingOKAck <- true
+			dl.pendingOKAck = nil
 			return Normal
 		//case MsgResend:
 		//	// It is possible to receive MsgResend, if we screwed up something earlier. Or may be there was some glitch on the wire.
