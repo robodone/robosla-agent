@@ -97,7 +97,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			continue
 		case "cut":
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			err := sh.exe.ExecuteFewCommands(ctx, "M107", "G4 P3000", "M106", "M107 P1", "G4 P400", "M106 P1")
+			err := sh.exe.ExecuteFewCommands(ctx, "M107", "G4 P900", "M106", "M107 P1", "G4 P400", "M106 P1")
 			cancel()
 			if err != nil {
 				sh.up.logf("Failed to grip: %v", err)
