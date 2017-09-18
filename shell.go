@@ -81,7 +81,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			continue
 		case "drop":
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			err := sh.exe.ExecuteFewCommands(ctx, "M107 P1", "G4 P300", "M106 P1")
+			err := sh.exe.ExecuteFewCommands(ctx, "M107 P1", "G4 P400", "M106 P1")
 			cancel()
 			if err != nil {
 				sh.up.logf("Failed to grip: %v", err)
@@ -90,6 +90,14 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 		case "grip":
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			err := sh.exe.ExecuteFewCommands(ctx, "M107", "G4 P45", "M106")
+			cancel()
+			if err != nil {
+				sh.up.logf("Failed to grip: %v", err)
+			}
+			continue
+		case "cut":
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := sh.exe.ExecuteFewCommands(ctx, "M107", "G4 P3000", "M106", "M107 P1", "G4 P400", "M106 P1")
 			cancel()
 			if err != nil {
 				sh.up.logf("Failed to grip: %v", err)
