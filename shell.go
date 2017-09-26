@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -229,5 +231,51 @@ func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string)
 	if graspID == "" {
 		return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): graspID not specified", packID, graspID)
 	}
-	return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): not implemented", packID, graspID)
+	cmd := exec.CommandContext(ctx, "/opt/robodone/realsense-snapshot")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %v", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %v", err)
+	}
+	go func(stderr io.ReadCloser) {
+		s := bufio.NewScanner(stderr)
+		for s.Scan() {
+			line := strings.TrimSpace(s.Text())
+			sh.up.logf("realsense-snapshot: %s", line)
+		}
+		if s.Err() != nil {
+			sh.up.logf("failed to read from realsense-snapshot stderr: %v", err)
+			return
+		}
+	}(stderr)
+	if err = cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start realsense-snapshot: %v", err)
+	}
+	stdoutScan := bufio.NewScanner(stdout)
+	for i := 0; i < 5; i++ {
+		if _, err = fmt.Fprintf(stdin, "/tmp/realsense-lala-%d-\n", i); err != nil {
+			return fmt.Errorf("failed to write to realsense-snapshot stdin: %v", err)
+		}
+		if !stdoutScan.Scan() {
+			err = stdoutScan.Err()
+			if err != nil {
+				return fmt.Errorf("failed to read from realsense-snapshot stdout: %v", err)
+			}
+			return errors.New("realsense-snapshot is probably dead, as reading from stdout reached EOF")
+		}
+		reply := strings.TrimSpace(stdoutScan.Text())
+		if reply != "OK" {
+			return fmt.Errorf("unexpected reply from realsense-snapshot: %v", reply)
+		}
+	}
+	sh.up.logf("RealSense snapshot (packID=%s, graspID=%s) is successfully taken", packID, graspID)
+	// TODO(krasin): either kill the realsense-snapshot process, or reuse it.
+	return nil
 }
