@@ -51,19 +51,21 @@ int main(void) {
     dev->wait_for_frames();
   }
 
-  // Save color image.
+  // Save the color frame.
   cv::Mat color_mat(color_intrinsics.height, color_intrinsics.width, CV_8UC3,
 		    const_cast<void*>(dev->get_frame_data(rs::stream::color)));
   cv::cvtColor(color_mat, color_mat, CV_RGB2BGR);
   std::vector<int> color_params = { CV_IMWRITE_JPEG_QUALITY, 90 };
-  // TODO(krasin): handle failures.
-  cv::imwrite("color.jpg", color_mat, color_params);
+  if (!cv::imwrite("color.jpg", color_mat, color_params)) {
+    fail("Failed to save color frame");
+  }
 
-  // Save depth image.
+  // Save the depth image.
   cv::Mat depth_mat(depth_intrinsics.height, depth_intrinsics.width, CV_16UC1,
 		    const_cast<void*>(dev->get_frame_data(rs::stream::depth)));
   std::vector<int> depth_params = { CV_IMWRITE_PNG_COMPRESSION, 9 };
-  // TODO(krasin): handle failures.
-  cv::imwrite("depth.png", depth_mat, depth_params);
+  if (!cv::imwrite("depth.png", depth_mat, depth_params)) {
+    fail("Failed to save depth frame");
+  }
   return 0;
 }
