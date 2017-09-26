@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include <vector>
+
 #include <librealsense/rs.hpp>
 #include <opencv2/opencv.hpp>
 
@@ -49,7 +51,11 @@ int main(void) {
     dev->wait_for_frames();
   }
 
-  // TODO(krasin): get actual data from the streams.
-
+  // Save color image.
+  cv::Mat color_mat(color_intrinsics.height, color_intrinsics.width, CV_8UC3,
+		    const_cast<void*>(dev->get_frame_data(rs::stream::color)));
+  cv::cvtColor(color_mat, color_mat, CV_RGB2BGR);
+  std::vector<int> color_params = { CV_IMWRITE_JPEG_QUALITY, 90 };
+  cv::imwrite("color.jpg", color_mat, color_params);
   return 0;
 }
