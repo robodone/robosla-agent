@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include <iostream>
+#include <string>
 #include <vector>
 
 #include <librealsense/rs.hpp>
@@ -57,24 +59,34 @@ int main(void) {
     dev->wait_for_frames();
   }
 
-  // Copy frames to the buffers, so we can modify the contents and be sure that
-  // the new frame won't corrupt the data.
-  memcpy(color_buf.data(), dev->get_frame_data(rs::stream::rectified_color), color_buf_size);
-  memcpy(depth_buf.data(), dev->get_frame_data(rs::stream::depth_aligned_to_rectified_color), depth_buf_size);
+  while (1) {
+    std::string out_prefix;
+    if (!std::getline(std::cin, out_prefix)) {
+      fail("Failed to read from stdin");
+    }
+    dev->wait_for_frames();
 
-  // Save the color frame as a JPEG image.
-  cv::Mat color_mat(color_intrinsics.height, color_intrinsics.width, CV_8UC3, color_buf.data());
-  cv::cvtColor(color_mat, color_mat, CV_RGB2BGR);
-  std::vector<int> color_params = { CV_IMWRITE_JPEG_QUALITY, 90 };
-  if (!cv::imwrite("color.jpg", color_mat, color_params)) {
-    fail("Failed to save color frame");
-  }
+    // Copy frames to the buffers, so we can modify the contents and be sure that
+    // the new frame won't corrupt the data.
+    memcpy(color_buf.data(), dev->get_frame_data(rs::stream::rectified_color), color_buf_size);
+    memcpy(depth_buf.data(), dev->get_frame_data(rs::stream::depth_aligned_to_rectified_color), depth_buf_size);
 
-  // Save the depth frame as a 16-bit grayscale PNG image.
-  cv::Mat depth_mat(depth_intrinsics.height, depth_intrinsics.width, CV_16UC1, depth_buf.data());
-  std::vector<int> depth_params = { CV_IMWRITE_PNG_COMPRESSION, 9 };
-  if (!cv::imwrite("depth.png", depth_mat, depth_params)) {
-    fail("Failed to save depth frame");
+    // Save the color frame as a JPEG image.
+    cv::Mat color_mat(color_intrinsics.height, color_intrinsics.width, CV_8UC3, color_buf.data());
+    cv::cvtColor(color_mat, color_mat, CV_RGB2BGR);
+    std::vector<int> color_params = { CV_IMWRITE_JPEG_QUALITY, 90 };
+    std::string color_fname = out_prefix + "color.jpg";
+    if (!cv::imwrite(color_fname, color_mat, color_params)) {
+      fail("Failed to save color frame");
+    }
+
+    // Save the depth frame as a 16-bit grayscale PNG image.
+    cv::Mat depth_mat(depth_intrinsics.height, depth_intrinsics.width, CV_16UC1, depth_buf.data());
+    std::vector<int> depth_params = { CV_IMWRITE_PNG_COMPRESSION, 9 };
+    std::string depth_fname = out_prefix + "depth.png";
+    if (!cv::imwrite(depth_fname, depth_mat, depth_params)) {
+      fail("Failed to save depth frame");
+    }
   }
   return 0;
 }
