@@ -134,6 +134,17 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 				}
 			}(ctx, arg1, arg2)
 			continue
+		case "realsense-train-pack":
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			packID := arg1
+			graspID := arg2
+			err := sh.RealSenseTrainPack(ctx, packID, graspID)
+			cancel()
+			if err != nil {
+				sh.up.logf("Failed to make a RealSense train pack: %v", err)
+				return lastTS
+			}
+			continue
 		case "reboot", "restart":
 			err := sh.Reboot()
 			if err != nil {
@@ -209,4 +220,14 @@ func (sh *Shell) Bash(ctx context.Context, args []string) error {
 		sh.up.logf("Output: %s", string(data))
 	}
 	return err
+}
+
+func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string) error {
+	if packID == "" {
+		return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): packID not specified", packID, graspID)
+	}
+	if graspID == "" {
+		return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): graspID not specified", packID, graspID)
+	}
+	return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): not implemented", packID, graspID)
 }
