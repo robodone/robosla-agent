@@ -46,23 +46,32 @@ int main(void) {
   rs::intrinsics color_intrinsics = dev->get_stream_intrinsics(rs::stream::color);
   rs::intrinsics depth_intrinsics = dev->get_stream_intrinsics(rs::stream::depth);
 
+  size_t color_buf_size = color_intrinsics.height * color_intrinsics.width * 3;
+  size_t depth_buf_size = depth_intrinsics.height * depth_intrinsics.width * 2;
+
+  std::vector<uint8_t> color_buf(color_buf_size);
+  std::vector<uint8_t> depth_buf(depth_buf_size);
+
   // Skip first few frames to make sure we have a stable image.
   for (int i = 0; i < kSkipFirstFrames; i++) {
     dev->wait_for_frames();
   }
 
-  // Save the color frame.
-  cv::Mat color_mat(color_intrinsics.height, color_intrinsics.width, CV_8UC3,
-		    const_cast<void*>(dev->get_frame_data(rs::stream::color)));
+  // Copy frames to the buffers, so we can modify the contents and be sure that
+  // the new frame won't corrupt the data.
+  memcpy(color_buf.data(), dev->get_frame_data(rs::stream::color), color_buf_size);
+  memcpy(depth_buf.data(), dev->get_frame_data(rs::stream::depth), depth_buf_size);
+
+  // Save the color frame as a JPEG image.
+  cv::Mat color_mat(color_intrinsics.height, color_intrinsics.width, CV_8UC3, color_buf.data());
   cv::cvtColor(color_mat, color_mat, CV_RGB2BGR);
   std::vector<int> color_params = { CV_IMWRITE_JPEG_QUALITY, 90 };
   if (!cv::imwrite("color.jpg", color_mat, color_params)) {
     fail("Failed to save color frame");
   }
 
-  // Save the depth image.
-  cv::Mat depth_mat(depth_intrinsics.height, depth_intrinsics.width, CV_16UC1,
-		    const_cast<void*>(dev->get_frame_data(rs::stream::depth)));
+  // Save the depth frame as a 16-bit grayscale PNG image.
+  cv::Mat depth_mat(depth_intrinsics.height, depth_intrinsics.width, CV_16UC1, depth_buf.data());
   std::vector<int> depth_params = { CV_IMWRITE_PNG_COMPRESSION, 9 };
   if (!cv::imwrite("depth.png", depth_mat, depth_params)) {
     fail("Failed to save depth frame");
