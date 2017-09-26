@@ -2,6 +2,7 @@
 #include <unistd.h>
 
 #include <librealsense/rs.hpp>
+#include <opencv2/opencv.hpp>
 
 const int kSkipFirstFrames = 60;
 
