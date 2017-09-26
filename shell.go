@@ -17,13 +17,19 @@ type Shell struct {
 	up           *Uplink
 	exe          *Executor
 	mu           sync.Mutex
+	rss          *RealSenseSnapshotter
 	curJobCancel context.CancelFunc
 }
 
-func NewShell(up *Uplink, down Downlink, virtual bool) *Shell {
+func NewShell(up *Uplink, down Downlink, virtual, realSense bool) *Shell {
+	var rss *RealSenseSnapshotter
+	if realSense {
+		rss = &RealSenseSnapshotter{up: up}
+	}
 	return &Shell{
 		up:  up,
 		exe: NewExecutor(up, down, virtual),
+		rss: rss,
 	}
 }
 
@@ -144,7 +150,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 				sh.up.logf("Failed to make a RealSense train pack: %v", err)
 				return lastTS
 			}
-			sh.up.logf("RealSense snapshot (packID=%s, graspID=%s) is successfully taken", packID, graspID)
+			sh.up.logf("RealSense train pack (packID=%s, graspID=%s) is successfully created", packID, graspID)
 			continue
 		case "reboot", "restart":
 			err := sh.Reboot()
@@ -224,6 +230,9 @@ func (sh *Shell) Bash(ctx context.Context, args []string) error {
 }
 
 func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string) error {
+	if sh.rss == nil {
+		return fmt.Errorf("RealSense functionality is not enabled")
+	}
 	if packID == "" {
 		return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): packID not specified", packID, graspID)
 	}
@@ -231,6 +240,5 @@ func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string)
 		return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): graspID not specified", packID, graspID)
 	}
 
-	rss := &RealSenseSnapshotter{up: sh.up}
-	return rss.TakeSnapshot(ctx, "/tmp/realsense-lala-")
+	return sh.rss.TakeSnapshot(ctx, "/tmp/realsense-lala-")
 }

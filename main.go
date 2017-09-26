@@ -18,6 +18,7 @@ var (
 	baudRate    = flag.Int("rate", 115200, "Baud rate")
 	apiServer   = flag.String("api_server", "", "Address of the API server")
 	virtual     = flag.Bool("virtual", false, "If specified, the printer will simulate a connection to a printer.")
+	realSense   = flag.Bool("realsense", false, "If specified, RealSense features will be enabled")
 	speedup     = flag.Float64("speedup", 10, "Speedup for --virtual mode")
 	deviceType  = flag.String("device_type", "usb-gcode", "Device type. Default value (usb-gcode) covers most common 3d printers / CNC machines based on g-code. Another possible value: ur3 for Universal Robots UR3.")
 	ur3Host     = flag.String("ur3_host", "", "UR3 robot host (only used if -device_type=ur3)")
@@ -82,7 +83,7 @@ func main() {
 	default:
 		up.Fatalf("Unsupported -device_type value: %q", *deviceType)
 	}
-	sh := NewShell(up, down, *virtual)
+	sh := NewShell(up, down, *virtual, *realSense)
 	go sh.Run()
 
 	// Never exit
