@@ -87,6 +87,8 @@ int main(void) {
     if (!cv::imwrite(depth_fname, depth_mat, depth_params)) {
       fail("Failed to save depth frame");
     }
+    printf("OK\n");
+    fflush(stdout);
   }
   return 0;
 }
