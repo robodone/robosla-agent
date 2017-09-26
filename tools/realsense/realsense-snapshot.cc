@@ -43,8 +43,8 @@ int main(void) {
   dev->start();
 
   // Get stream params (including width and height of each frame).
-  rs::intrinsics color_intrinsics = dev->get_stream_intrinsics(rs::stream::color);
-  rs::intrinsics depth_intrinsics = dev->get_stream_intrinsics(rs::stream::depth);
+  rs::intrinsics color_intrinsics = dev->get_stream_intrinsics(rs::stream::rectified_color);
+  rs::intrinsics depth_intrinsics = dev->get_stream_intrinsics(rs::stream::depth_aligned_to_rectified_color);
 
   size_t color_buf_size = color_intrinsics.height * color_intrinsics.width * 3;
   size_t depth_buf_size = depth_intrinsics.height * depth_intrinsics.width * 2;
@@ -59,8 +59,8 @@ int main(void) {
 
   // Copy frames to the buffers, so we can modify the contents and be sure that
   // the new frame won't corrupt the data.
-  memcpy(color_buf.data(), dev->get_frame_data(rs::stream::color), color_buf_size);
-  memcpy(depth_buf.data(), dev->get_frame_data(rs::stream::depth), depth_buf_size);
+  memcpy(color_buf.data(), dev->get_frame_data(rs::stream::rectified_color), color_buf_size);
+  memcpy(depth_buf.data(), dev->get_frame_data(rs::stream::depth_aligned_to_rectified_color), depth_buf_size);
 
   // Save the color frame as a JPEG image.
   cv::Mat color_mat(color_intrinsics.height, color_intrinsics.width, CV_8UC3, color_buf.data());
