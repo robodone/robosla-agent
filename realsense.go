@@ -67,6 +67,5 @@ func (rss *RealSenseSnapshotter) TakeSnapshot(ctx context.Context, prefix string
 			return fmt.Errorf("unexpected reply from realsense-snapshot: %v", reply)
 		}
 	}
-	// TODO(krasin): either kill the realsense-snapshot process, or reuse it.
 	return nil
 }

@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,8 +145,8 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			continue
 		case "realsense-train-pack":
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			packID := arg1
-			graspID := arg2
+			graspID := arg1
+			packID := arg2
 			err := sh.RealSenseTrainPack(ctx, packID, graspID)
 			cancel()
 			if err != nil {
@@ -231,14 +234,36 @@ func (sh *Shell) Bash(ctx context.Context, args []string) error {
 
 func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string) error {
 	if sh.rss == nil {
-		return fmt.Errorf("RealSense functionality is not enabled")
+		return errors.New("RealSense functionality is not enabled")
 	}
 	if packID == "" {
-		return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): packID not specified", packID, graspID)
+		return errors.New("packID not specified")
+	}
+	if !isHexID(packID) {
+		return errors.New("packID is not a valid hex ID")
 	}
 	if graspID == "" {
-		return fmt.Errorf("RealSenseTrainPack(packID=%s, graspID=%s): graspID not specified", packID, graspID)
+		return errors.New("graspID not specified")
 	}
+	if !isHexID(graspID) {
+		return errors.New("graspID is not a valid hex ID")
+	}
+	packDir := path.Join("/opt/robodone/realsense/", graspID, packID)
+	if err := os.MkdirAll(packDir, 0777); err != nil {
+		return fmt.Errorf("failed to create a directory for a pack of snapshots")
+	}
+	sh.up.logf("Pack dir %s created", packDir)
+	prefix := path.Join(packDir, packID) + "-"
 
-	return sh.rss.TakeSnapshot(ctx, "/tmp/realsense-lala-")
+	return sh.rss.TakeSnapshot(ctx, prefix)
+}
+
+func isHexID(str string) bool {
+	if len(str) != 16 {
+		return false
+	}
+	if _, err := strconv.ParseUint(str, 16, 64); err != nil {
+		return false
+	}
+	return true
 }
