@@ -175,6 +175,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 				sh.up.logf("Failed to read RealSense Train Pack params: %v", err)
 				return lastTS
 			}
+			start := time.Now()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			err = sh.RealSenseTrainPack(ctx, packID, graspID, x, y, z, roll, pitch, yaw)
 			cancel()
@@ -182,7 +183,8 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 				sh.up.logf("Failed to make a RealSense train pack: %v", err)
 				return lastTS
 			}
-			sh.up.logf("RealSense train pack (packID=%s, graspID=%s) is successfully created", packID, graspID)
+			dur := time.Now().Sub(start)
+			sh.up.logf("RealSense train pack (packID=%s, graspID=%s) is successfully created. Took %.2f seconds.", packID, graspID, dur.Seconds())
 			continue
 		case "reboot", "restart":
 			err := sh.Reboot()
