@@ -17,7 +17,19 @@ type RealSenseSnapshotter struct {
 	stdoutScan *bufio.Scanner
 }
 
-func (rss *RealSenseSnapshotter) TakeSnapshot(ctx context.Context, prefix string) error {
+type RealSenseTrainPackParams struct {
+	PackID    string  `json:"packID"`
+	GraspID   string  `json:"graspID"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	Z         float64 `json:"z"`
+	Roll      float64 `json:"roll"`
+	Pitch     float64 `json:"pitch"`
+	Yaw       float64 `json:"yaw"`
+	NumFrames int     `json:"numFrames"`
+}
+
+func (rss *RealSenseSnapshotter) TakeSnapshot(ctx context.Context, prefix string, numFrames int) error {
 	if rss.cmd == nil {
 		cmd := exec.Command("/opt/robodone/realsense-snapshot")
 		stdin, err := cmd.StdinPipe()
@@ -50,8 +62,8 @@ func (rss *RealSenseSnapshotter) TakeSnapshot(ctx context.Context, prefix string
 		rss.stdin = stdin
 		rss.stdoutScan = bufio.NewScanner(stdout)
 	}
-	for i := 0; i < 5; i++ {
-		if _, err := fmt.Fprintf(rss.stdin, "%s%d-\n", prefix, i); err != nil {
+	for i := 0; i < numFrames; i++ {
+		if _, err := fmt.Fprintf(rss.stdin, "%s%02d-\n", prefix, i); err != nil {
 			return fmt.Errorf("failed to write to realsense-snapshot stdin: %v", err)
 		}
 		// TODO(krasin): obey context cancellation here.

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -144,10 +146,37 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			}(ctx, arg1, arg2)
 			continue
 		case "realsense-train-pack":
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			graspID := arg1
 			packID := arg2
-			err := sh.RealSenseTrainPack(ctx, packID, graspID)
+			var err error
+			f64 := func(name string, idx int) float64 {
+				if err != nil {
+					return math.NaN()
+				}
+				if idx >= len(parts) {
+					err = fmt.Errorf("realsense-train-pack: not enough parameters (%d). Want at least %d to parse %s",
+						len(parts), idx+1, name)
+					return math.NaN()
+				}
+				var res float64
+				res, err = strconv.ParseFloat(parts[idx], 64)
+				if err != nil {
+					return math.NaN()
+				}
+				return res
+			}
+			x := f64("x", 3)
+			y := f64("y", 4)
+			z := f64("z", 5)
+			roll := f64("roll", 6)
+			pitch := f64("pitch", 7)
+			yaw := f64("yaw", 8)
+			if err != nil {
+				sh.up.logf("Failed to read RealSense Train Pack params: %v", err)
+				return lastTS
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err = sh.RealSenseTrainPack(ctx, packID, graspID, x, y, z, roll, pitch, yaw)
 			cancel()
 			if err != nil {
 				sh.up.logf("Failed to make a RealSense train pack: %v", err)
@@ -232,7 +261,8 @@ func (sh *Shell) Bash(ctx context.Context, args []string) error {
 	return err
 }
 
-func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string) error {
+func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string,
+	x, y, z, roll, pitch, yaw float64) error {
 	if sh.rss == nil {
 		return errors.New("RealSense functionality is not enabled")
 	}
@@ -255,7 +285,30 @@ func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string)
 	sh.up.logf("Pack dir %s created", packDir)
 	prefix := path.Join(packDir, packID) + "-"
 
-	return sh.rss.TakeSnapshot(ctx, prefix)
+	numFrames := 5
+	if err := sh.rss.TakeSnapshot(ctx, prefix, numFrames); err != nil {
+		return fmt.Errorf("failed to take a RealSense snapshot: %v", err)
+	}
+	// Now, it's time to write parameters.json with the pose and possibly other values.
+	p := &RealSenseTrainPackParams{
+		PackID:    packID,
+		GraspID:   graspID,
+		X:         x,
+		Y:         y,
+		Z:         z,
+		Roll:      roll,
+		Pitch:     pitch,
+		Yaw:       yaw,
+		NumFrames: numFrames,
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize RealSense Train Pack params to JSON: %v", err)
+	}
+	if err := ioutil.WriteFile(path.Join(packDir, "parameters.json"), data, 0644); err != nil {
+		return fmt.Errorf("failed to write RealSense Train Pack params to the disk: %v", err)
+	}
+	return nil
 }
 
 func isHexID(str string) bool {
