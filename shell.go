@@ -193,6 +193,20 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 				return lastTS
 			}
 			continue
+		case "snapshot":
+			// Take snapshot of all cameras attached.
+			// Note: currently, that only includes RealSense cameras (RGB + Depth).
+			start := time.Now()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := sh.Snapshot(ctx)
+			cancel()
+			if err != nil {
+				sh.up.logf("Failed to make a snapshot of all cameras (note: only RealSense at the moment): %v", err)
+				return lastTS
+			}
+			dur := time.Now().Sub(start)
+			sh.up.logf("Took a snapshot from all (RealSense) cameras in %.2f seconds.", dur.Seconds())
+			continue
 		case "version":
 			sh.up.PrintVersion()
 			continue
@@ -311,6 +325,10 @@ func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string,
 		return fmt.Errorf("failed to write RealSense Train Pack params to the disk: %v", err)
 	}
 	return nil
+}
+
+func (sh *Shell) Snapshot(ctx context.Context) error {
+	return fmt.Errorf("not implemented")
 }
 
 func isHexID(str string) bool {
