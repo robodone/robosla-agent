@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/device_api"
+	"github.com/vincent-petithory/dataurl"
 )
 
 type Shell struct {
@@ -303,7 +304,7 @@ func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string,
 
 	numFrames := 5
 	if err := sh.rss.TakeSnapshot(ctx, prefix, numFrames); err != nil {
-		return fmt.Errorf("failed to take a RealSense snapshot: %v", err)
+		return fmt.Errorf("failed to take a RealSense snapshot (%d frames): %v", numFrames, err)
 	}
 	// Now, it's time to write parameters.json with the pose and possibly other values.
 	p := &RealSenseTrainPackParams{
@@ -328,7 +329,35 @@ func (sh *Shell) RealSenseTrainPack(ctx context.Context, packID, graspID string,
 }
 
 func (sh *Shell) Snapshot(ctx context.Context) error {
-	return fmt.Errorf("not implemented")
+	dirName, err := ioutil.TempDir("", "robosla-shell-snapshot-")
+	if err != nil {
+		return fmt.Errorf("failed to create a temp directory")
+	}
+	sh.up.logf("Temp dir %s created", dirName)
+	// TODO(krasin): remove the temp directory.
+	//defer os.RemoveAll(dirName)
+
+	prefix := path.Join(dirName, "realsense-")
+	if err := sh.rss.TakeSnapshot(ctx, prefix, 1 /*numFrames*/); err != nil {
+		return fmt.Errorf("failed to take a RealSense snapshot: %v", err)
+	}
+
+	// Scan the directory and load all images into a map.
+	fnames, err := getImageNames(dirName)
+	if err != nil {
+		return fmt.Errorf("failed to list images in %s: %v", dirName, err)
+	}
+	cameras := make(map[string]string)
+	for _, fname := range fnames {
+		data, err := ioutil.ReadFile(path.Join(dirName, fname))
+		if err != nil {
+			return fmt.Errorf("failed to load a camera frame from %s: %v", fname, err)
+		}
+		cameras[fname[:len(fname)-len(path.Ext(fname))]] = dataurl.EncodeBytes(data)
+	}
+	sh.up.NotifySnapshot(cameras)
+
+	return nil
 }
 
 func isHexID(str string) bool {

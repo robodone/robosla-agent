@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -203,6 +204,14 @@ func (up *Uplink) NotifyFrameIndex(jobName string, frameIndex, numFrames int) {
 		NumFrames:  numFrames,
 	}))
 }
+
+func (up *Uplink) NotifySnapshot(cameras map[string]string) {
+	up.Notify(up.bestJson(&device_api.UplinkMessage{
+		Type:    "notify-snapshot",
+		Cameras: cameras,
+	}))
+}
+
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)
@@ -225,4 +234,25 @@ func (up *Uplink) bestJson(v interface{}) string {
 		return "{}"
 	}
 	return string(data)
+}
+
+func getImageNames(dirName string) ([]string, error) {
+	f, err := os.Open(dirName)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fnames, err := f.Readdirnames(0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list directory: %v", err)
+	}
+	var imageFnames []string
+	for _, fname := range fnames {
+		switch path.Ext(fname) {
+		case ".png", ".jpg", ".jpeg":
+			imageFnames = append(imageFnames, fname)
+		default:
+		}
+	}
+	return imageFnames, nil
 }
