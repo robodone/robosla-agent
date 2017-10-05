@@ -8,7 +8,13 @@ import (
 	"net"
 )
 
-const MaxPacketSize = 65535
+const (
+	MaxPacketSize = 65535
+
+	RTDE_REQUEST_PROTOCOL_VERSION = 86
+
+	RTDE_PROTOCOL_VERSION = 2
+)
 
 var (
 	ur3Host     = flag.String("ur3_host", "", "UR3 robot host")
@@ -25,7 +31,28 @@ func readHeader(r io.Reader) (size int, typ PacketType, err error) {
 	// Network byte order aka Big Endian
 	size = int(buf[0])<<8 + int(buf[1])
 	typ = PacketType(buf[2])
+	if size < 3 {
+		return 0, 0, fmt.Errorf("size is too small: %d, want at least 3", size)
+	}
 	return
+}
+
+func sendPacket(w io.Writer, typ PacketType, body []byte) error {
+	size := len(body) + 3
+	if size > MaxPacketSize {
+		return fmt.Errorf("Packet size is too large: %d, MaxPacketSize: %d\n", size, MaxPacketSize)
+	}
+	if _, err := w.Write([]byte{byte(size >> 8), byte(size & 0xFF), byte(typ)}); err != nil {
+		return err
+	}
+	if _, err := w.Write(body); err != nil {
+		return err
+	}
+	return nil
+}
+
+func u16Bytes(val uint16) []byte {
+	return []byte{byte(val >> 8), byte(val & 0xFF)}
 }
 
 func main() {
@@ -56,13 +83,17 @@ func main() {
 			log.Fatalf("Unexpected error while reading a packet header: %v", err)
 		}
 		// Now, read the body.
-		body := buf[:size]
+		body := buf[:size-3]
 		if _, err = io.ReadFull(conn, body); err != nil {
 			log.Fatalf("Failed to read the packet body (size=%d, type=%d): %v", size, typ, err)
 		}
 		// TODO(krasin): make best effort to decode the packet.
-		fmt.Printf("Type: %d, Packet: %v\n", typ, body)
+		log.Printf("Type: %d, Packet: %v", typ, body)
 	}()
 
+	if err := sendPacket(conn, RTDE_REQUEST_PROTOCOL_VERSION, u16Bytes(RTDE_PROTOCOL_VERSION)); err != nil {
+		log.Fatalf("Failed to send RTDE_REQUEST_PROTOCOL_VERSION packet: %v", err)
+	}
+	log.Printf("RTDE_REQUEST_PROTOCOL_VERSION sent")
 	select {}
 }
