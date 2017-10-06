@@ -212,6 +212,13 @@ func (up *Uplink) NotifySnapshot(cameras map[string]string) {
 	}))
 }
 
+func (up *Uplink) NotifyMovingState(state string) {
+	up.Notify(up.bestJson(&device_api.UplinkMessage{
+		Type:        "notify-moving-state",
+		MovingState: state,
+	}))
+}
+
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)

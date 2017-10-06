@@ -170,7 +170,7 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 				state = "moving"
 			}
 			if state != prevState {
-				dl.up.logf("Current UR moving state: %s, prev state: %s\n", state, prevState)
+				dl.up.NotifyMovingState(state)
 			}
 			prevState = state
 		}
