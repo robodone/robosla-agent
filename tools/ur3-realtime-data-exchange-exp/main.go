@@ -17,6 +17,7 @@ const (
 	RTDE_GET_URCONTROL_VERSION         = 118
 	RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS = 79
 	RTDE_CONTROL_PACKAGE_START         = 83
+	RTDE_DATA_PACKAGE                  = 85
 
 	RTDE_PROTOCOL_VERSION = 2
 )
@@ -60,20 +61,54 @@ func sendPacket(w io.Writer, typ PacketType, bodyParts ...[]byte) error {
 	return nil
 }
 
+func parseU64(data []byte) uint64 {
+	if len(data) != 8 {
+		panic(fmt.Sprintf("parseU64: invalid input len. Want: 8, got: %d", len(data)))
+	}
+	return uint64(data[0])<<56 + uint64(data[1])<<48 + uint64(data[2])<<40<<uint64(data[3])<<32 +
+		uint64(data[4])<<24 + uint64(data[5])<<16 + uint64(data[6])<<8 + uint64(data[7])
+}
+
+func parseF64(data []byte) float64 {
+	return math.Float64frombits(parseU64(data))
+}
+
+func parseVector6D(data []byte) []float64 {
+	if len(data) != 48 {
+		panic(fmt.Sprintf("parseVector6D: invalid input len. Want: 48, got: %d", len(data)))
+	}
+	return []float64{
+		parseF64(data[0:8]),
+		parseF64(data[8:16]),
+		parseF64(data[16:24]),
+		parseF64(data[24:32]),
+		parseF64(data[32:40]),
+		parseF64(data[40:48]),
+	}
+}
+
 func receivePacket(conn net.Conn) (typ PacketType, body []byte, err error) {
 	size, typ, err := readHeader(conn)
 	if err != nil {
 		return 0, nil, err
 	}
-	log.Printf("Got a header, typ: %d, size: %d. Now, reading the body...", typ, size)
+	//log.Printf("Got a header, typ: %d, size: %d. Now, reading the body...", typ, size)
 	// Now, read the body.
 	body = make([]byte, size-3)
 	if _, err = io.ReadFull(conn, body); err != nil {
 		return 0, nil, err
 	}
 	// TODO(krasin): make best effort to decode the packet.
-	log.Printf("Type: %d, Packet: %v", typ, body)
+	//log.Printf("Type: %d, Packet: %v", typ, body)
 
+	if typ == RTDE_DATA_PACKAGE {
+		speed := parseVector6D(body[1:])
+		var l2 float64
+		for _, v := range speed {
+			l2 += v * v
+		}
+		log.Printf("Current TCP speed:  %+v", math.Sqrt(l2))
+	}
 	return typ, body, nil
 }
 
@@ -126,7 +161,7 @@ func main() {
 	time.Sleep(2 * time.Millisecond)
 	//send(RTDE_GET_URCONTROL_VERSION, nil)
 	//time.Sleep(time.Second)
-	send(RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS, f64Bytes(1 /* frequency */), []byte("safety_status_bits"))
+	send(RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS, f64Bytes(2 /* frequency */), []byte("actual_TCP_speed"))
 	time.Sleep(2 * time.Millisecond)
 	send(RTDE_CONTROL_PACKAGE_START)
 
