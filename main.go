@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -55,6 +56,12 @@ func main() {
 	up := NewUplink(*apiServer)
 	go up.Run()
 
+	var rss *RealSenseSnapshotter
+	if *realSense {
+		rss = &RealSenseSnapshotter{up: up}
+	}
+	exe := NewExecutor(up, *virtual, rss)
+
 	var down Downlink
 	switch *deviceType {
 	case "usb-gcode":
@@ -78,13 +85,28 @@ func main() {
 		if *virtual {
 			up.Fatalf("virtual UR3 is not supported")
 		}
-		ur3Down := NewUR3Downlink(up, *ur3Host, *ur3Port, *ur3RTDEPort)
+		notifyMovingState := func(state string) {
+			up.NotifyMovingState(state)
+			// We try to take snapshot, if we are not moving.
+			if state != "moving" && rss != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				err := exe.Snapshot(ctx)
+				cancel()
+				if err != nil {
+					up.logf("Failed to make a snapshot on idle transition: %v", err)
+					return
+				}
+			}
+		}
+		ur3Down := NewUR3Downlink(up, *ur3Host, *ur3Port, *ur3RTDEPort, notifyMovingState)
 		go ur3Down.Run()
 		down = ur3Down
 	default:
 		up.Fatalf("Unsupported -device_type value: %q", *deviceType)
 	}
-	sh := NewShell(up, down, *virtual, *realSense)
+	// TODO(krasin): remove this initialization dependency loop between executor, shell and downlink.
+	exe.down = down
+	sh := NewShell(up, down, exe)
 	go sh.Run()
 
 	// Never exit

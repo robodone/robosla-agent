@@ -14,20 +14,31 @@ import (
 )
 
 type UR3Downlink struct {
-	up           *Uplink
-	host         string
-	port         int
-	rtdePort     int
-	reqCh        chan *DFAMsg
-	conn         io.ReadWriteCloser
-	rtdeConn     net.Conn
-	pendingOKAck chan<- bool
+	up                   *Uplink
+	host                 string
+	port                 int
+	rtdePort             int
+	onMovingStateChanged func(state string)
+	reqCh                chan *DFAMsg
+	conn                 io.ReadWriteCloser
+	rtdeConn             net.Conn
+	pendingOKAck         chan<- bool
 	// These are pending writes which we have not yet processed at all.
 	pendingWrites []*DFAMsg
 }
 
-func NewUR3Downlink(up *Uplink, host string, port, rtdePort int) *UR3Downlink {
-	return &UR3Downlink{up: up, host: host, port: port, rtdePort: rtdePort, reqCh: make(chan *DFAMsg)}
+func NewUR3Downlink(up *Uplink, host string, port, rtdePort int, onMovingStateChanged func(state string)) *UR3Downlink {
+	if onMovingStateChanged == nil {
+		onMovingStateChanged = func(state string) {}
+	}
+	return &UR3Downlink{
+		up:                   up,
+		host:                 host,
+		port:                 port,
+		rtdePort:             rtdePort,
+		onMovingStateChanged: onMovingStateChanged,
+		reqCh:                make(chan *DFAMsg),
+	}
 }
 
 func (dl *UR3Downlink) Connected() bool {
@@ -170,7 +181,7 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 				state = "moving"
 			}
 			if state != prevState {
-				dl.up.NotifyMovingState(state)
+				dl.onMovingStateChanged(state)
 			}
 			prevState = state
 		}

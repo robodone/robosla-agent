@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,16 +19,19 @@ import (
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
+	"github.com/vincent-petithory/dataurl"
 )
 
 type Executor struct {
 	up      *Uplink
 	down    Downlink
 	virtual bool
+	rss     *RealSenseSnapshotter
 }
 
-func NewExecutor(up *Uplink, down Downlink, virtual bool) *Executor {
-	return &Executor{up: up, down: down, virtual: virtual}
+// NB: the caller MUST set downlink before using the executor.
+func NewExecutor(up *Uplink, virtual bool, rss *RealSenseSnapshotter) *Executor {
+	return &Executor{up: up, virtual: virtual, rss: rss}
 }
 
 func isCanceled(ctx context.Context) bool {
@@ -480,4 +484,99 @@ func tryToRemoveOldJobs(dir string) error {
 		}
 	}
 	return firstErr
+}
+
+func (exe *Executor) RealSenseTrainPack(ctx context.Context, packID, graspID string,
+	x, y, z, roll, pitch, yaw float64) error {
+	if exe.rss == nil {
+		return errors.New("RealSense functionality is not enabled")
+	}
+	if packID == "" {
+		return errors.New("packID not specified")
+	}
+	if !isHexID(packID) {
+		return errors.New("packID is not a valid hex ID")
+	}
+	if graspID == "" {
+		return errors.New("graspID not specified")
+	}
+	if !isHexID(graspID) {
+		return errors.New("graspID is not a valid hex ID")
+	}
+	packDir := path.Join("/opt/robodone/realsense/", graspID, packID)
+	if err := os.MkdirAll(packDir, 0777); err != nil {
+		return fmt.Errorf("failed to create a directory for a pack of snapshots")
+	}
+	exe.up.logf("Pack dir %s created", packDir)
+	prefix := path.Join(packDir, packID) + "-"
+
+	numFrames := 5
+	if err := exe.rss.TakeSnapshot(ctx, prefix, numFrames); err != nil {
+		return fmt.Errorf("failed to take a RealSense snapshot (%d frames): %v", numFrames, err)
+	}
+	// Now, it's time to write parameters.json with the pose and possibly other values.
+	p := &RealSenseTrainPackParams{
+		PackID:    packID,
+		GraspID:   graspID,
+		X:         x,
+		Y:         y,
+		Z:         z,
+		Roll:      roll,
+		Pitch:     pitch,
+		Yaw:       yaw,
+		NumFrames: numFrames,
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize RealSense Train Pack params to JSON: %v", err)
+	}
+	if err := ioutil.WriteFile(path.Join(packDir, "parameters.json"), data, 0644); err != nil {
+		return fmt.Errorf("failed to write RealSense Train Pack params to the disk: %v", err)
+	}
+	return nil
+}
+
+func (exe *Executor) Snapshot(ctx context.Context) error {
+	if exe.rss == nil {
+		return errors.New("RealSense functionality is not enabled")
+	}
+	dirName, err := ioutil.TempDir("", "robosla-shell-snapshot-")
+	if err != nil {
+		return fmt.Errorf("failed to create a temp directory")
+	}
+	exe.up.logf("Temp dir %s created", dirName)
+	// TODO(krasin): remove the temp directory.
+	//defer os.RemoveAll(dirName)
+
+	prefix := path.Join(dirName, "realsense-")
+	if err := exe.rss.TakeSnapshot(ctx, prefix, 1 /*numFrames*/); err != nil {
+		return fmt.Errorf("failed to take a RealSense snapshot: %v", err)
+	}
+
+	// Scan the directory and load all images into a map.
+	fnames, err := getImageNames(dirName)
+	if err != nil {
+		return fmt.Errorf("failed to list images in %s: %v", dirName, err)
+	}
+	cameras := make(map[string]string)
+	for _, fname := range fnames {
+		data, err := ioutil.ReadFile(path.Join(dirName, fname))
+		if err != nil {
+			return fmt.Errorf("failed to load a camera frame from %s: %v", fname, err)
+		}
+		cameras[fname[:len(fname)-len(path.Ext(fname))]] = dataurl.EncodeBytes(data)
+	}
+	exe.up.NotifySnapshot(cameras)
+
+	return nil
+}
+
+func isHexID(str string) bool {
+	if len(str) != 16 {
+		return false
+	}
+	if _, err := strconv.ParseUint(str, 16, 64); err != nil {
+		return false
+	}
+	return true
 }
