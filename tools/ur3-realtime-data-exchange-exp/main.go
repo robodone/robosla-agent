@@ -5,13 +5,18 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
+	"time"
 )
 
 const (
 	MaxPacketSize = 65535
 
-	RTDE_REQUEST_PROTOCOL_VERSION = 86
+	RTDE_REQUEST_PROTOCOL_VERSION      = 86
+	RTDE_GET_URCONTROL_VERSION         = 118
+	RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS = 79
+	RTDE_CONTROL_PACKAGE_START         = 83
 
 	RTDE_PROTOCOL_VERSION = 2
 )
@@ -37,7 +42,11 @@ func readHeader(r io.Reader) (size int, typ PacketType, err error) {
 	return
 }
 
-func sendPacket(w io.Writer, typ PacketType, body []byte) error {
+func sendPacket(w io.Writer, typ PacketType, bodyParts ...[]byte) error {
+	var body []byte
+	for _, v := range bodyParts {
+		body = append(body, v...)
+	}
 	size := len(body) + 3
 	if size > MaxPacketSize {
 		return fmt.Errorf("Packet size is too large: %d, MaxPacketSize: %d\n", size, MaxPacketSize)
@@ -51,8 +60,44 @@ func sendPacket(w io.Writer, typ PacketType, body []byte) error {
 	return nil
 }
 
+func receivePacket(conn net.Conn) (typ PacketType, body []byte, err error) {
+	size, typ, err := readHeader(conn)
+	if err != nil {
+		return 0, nil, err
+	}
+	log.Printf("Got a header, typ: %d, size: %d. Now, reading the body...", typ, size)
+	// Now, read the body.
+	body = make([]byte, size-3)
+	if _, err = io.ReadFull(conn, body); err != nil {
+		return 0, nil, err
+	}
+	// TODO(krasin): make best effort to decode the packet.
+	log.Printf("Type: %d, Packet: %v", typ, body)
+
+	return typ, body, nil
+}
+
+func sendAndReceive(conn net.Conn, typ PacketType, bodyParts ...[]byte) (respTyp PacketType, body []byte, err error) {
+	if err := sendPacket(conn, typ, bodyParts...); err != nil {
+		return 0, nil, err
+	}
+	log.Printf("Packet type %d sent", typ)
+	return receivePacket(conn)
+}
+
 func u16Bytes(val uint16) []byte {
 	return []byte{byte(val >> 8), byte(val & 0xFF)}
+}
+
+func u64Bytes(val uint64) []byte {
+	return []byte{
+		byte(val >> 56), byte(val >> 48), byte(val >> 40), byte(val >> 32),
+		byte(val >> 24), byte(val >> 16), byte(val >> 8), byte(val),
+	}
+}
+
+func f64Bytes(val float64) []byte {
+	return u64Bytes(math.Float64bits(val))
 }
 
 func main() {
@@ -68,32 +113,30 @@ func main() {
 	defer conn.Close()
 	log.Printf("Opened robot connection to %s:%d.", *ur3Host, *ur3RTDEPort)
 
-	go func() {
-		// Read incoming packages, decode them and print to stdout.
-		buf := make([]byte, MaxPacketSize)
+	/*	go func() {
+		}()*/
 
-		// First, we read the header.
-		size, typ, err := readHeader(conn)
+	send := func(typ PacketType, bodyParts ...[]byte) {
+		_, _, err := sendAndReceive(conn, typ, bodyParts...)
 		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				// The connection is closed. Stop reading from it.
-				log.Printf("Robot connection is closed: %v", err)
-				return
-			}
-			log.Fatalf("Unexpected error while reading a packet header: %v", err)
+			log.Fatalf("Failed to send/receive a packet, typ: %d, bodyParts: %v, err: %v", typ, bodyParts, err)
 		}
-		// Now, read the body.
-		body := buf[:size-3]
-		if _, err = io.ReadFull(conn, body); err != nil {
-			log.Fatalf("Failed to read the packet body (size=%d, type=%d): %v", size, typ, err)
-		}
-		// TODO(krasin): make best effort to decode the packet.
-		log.Printf("Type: %d, Packet: %v", typ, body)
-	}()
-
-	if err := sendPacket(conn, RTDE_REQUEST_PROTOCOL_VERSION, u16Bytes(RTDE_PROTOCOL_VERSION)); err != nil {
-		log.Fatalf("Failed to send RTDE_REQUEST_PROTOCOL_VERSION packet: %v", err)
 	}
-	log.Printf("RTDE_REQUEST_PROTOCOL_VERSION sent")
+	send(RTDE_REQUEST_PROTOCOL_VERSION, u16Bytes(RTDE_PROTOCOL_VERSION))
+	time.Sleep(2 * time.Millisecond)
+	//send(RTDE_GET_URCONTROL_VERSION, nil)
+	//time.Sleep(time.Second)
+	send(RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS, f64Bytes(1 /* frequency */), []byte("safety_status_bits"))
+	time.Sleep(2 * time.Millisecond)
+	send(RTDE_CONTROL_PACKAGE_START)
+
+	// Read incoming packages, decode them and print to stdout.
+	for {
+		_, _, err := receivePacket(conn)
+		if err != nil {
+			log.Fatalf("Failed to read from the socket: %v", err)
+		}
+	}
+
 	select {}
 }
