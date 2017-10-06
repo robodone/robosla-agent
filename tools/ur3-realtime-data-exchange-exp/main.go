@@ -87,6 +87,26 @@ func parseVector6D(data []byte) []float64 {
 	}
 }
 
+func l2(vec []float64) float64 {
+	var sum2 float64
+	for _, v := range vec {
+		sum2 += v * v
+	}
+	return math.Sqrt(sum2)
+}
+
+func sub(a, b []float64) []float64 {
+	res := make([]float64, len(a))
+	if b != nil {
+		for i := range a {
+			res[i] = a[i] - b[i]
+		}
+	}
+	return res
+}
+
+var lastPose []float64
+
 func receivePacket(conn net.Conn) (typ PacketType, body []byte, err error) {
 	size, typ, err := readHeader(conn)
 	if err != nil {
@@ -102,12 +122,23 @@ func receivePacket(conn net.Conn) (typ PacketType, body []byte, err error) {
 	//log.Printf("Type: %d, Packet: %v", typ, body)
 
 	if typ == RTDE_DATA_PACKAGE {
-		speed := parseVector6D(body[1:])
-		var l2 float64
-		for _, v := range speed {
-			l2 += v * v
+		vec := parseVector6D(body[1:])
+		linSpeed := l2(vec[:3])
+		rotSpeed := l2(vec[3:])
+		if linSpeed < 2E-5 {
+			linSpeed = 0
 		}
-		log.Printf("Current TCP speed:  %+v", math.Sqrt(l2))
+		if rotSpeed < 5E-4 {
+			rotSpeed = 0
+		}
+		log.Printf("Current TCP speed:  %+v, %+v", linSpeed, rotSpeed)
+		//log.Printf("Current TCP pose: %+v, diff: %v", vec, l2(sub(vec, lastPose)))
+		//diff := l2(sub(vec, lastPose))
+		//if diff < 2E-4 {
+		//	diff = 0
+		//}
+		//log.Printf("Diff: %v", diff)
+		lastPose = vec
 	}
 	return typ, body, nil
 }
@@ -161,7 +192,7 @@ func main() {
 	time.Sleep(2 * time.Millisecond)
 	//send(RTDE_GET_URCONTROL_VERSION, nil)
 	//time.Sleep(time.Second)
-	send(RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS, f64Bytes(2 /* frequency */), []byte("actual_TCP_speed"))
+	send(RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS, f64Bytes(6 /* frequency */), []byte("actual_TCP_speed"))
 	time.Sleep(2 * time.Millisecond)
 	send(RTDE_CONTROL_PACKAGE_START)
 
