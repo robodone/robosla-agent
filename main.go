@@ -23,6 +23,7 @@ var (
 	deviceType  = flag.String("device_type", "usb-gcode", "Device type. Default value (usb-gcode) covers most common 3d printers / CNC machines based on g-code. Another possible value: ur3 for Universal Robots UR3.")
 	ur3Host     = flag.String("ur3_host", "", "UR3 robot host (only used if -device_type=ur3)")
 	ur3Port     = flag.Int("ur3_port", 30002, "UR3 port (only used if -device_type=ur3)")
+	ur3RTDEPort = flag.Int("ur3_rtde_port", 30004, "UR3 RTDE port (only used if -device_type=ur3)")
 )
 
 func failf(format string, args ...interface{}) {
@@ -77,7 +78,7 @@ func main() {
 		if *virtual {
 			up.Fatalf("virtual UR3 is not supported")
 		}
-		ur3Down := NewUR3Downlink(up, *ur3Host, *ur3Port)
+		ur3Down := NewUR3Downlink(up, *ur3Host, *ur3Port, *ur3RTDEPort)
 		go ur3Down.Run()
 		down = ur3Down
 	default:

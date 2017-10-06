@@ -5,24 +5,29 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/robodone/robosla-agent/pkg/ur"
 )
 
 type UR3Downlink struct {
 	up           *Uplink
 	host         string
 	port         int
+	rtdePort     int
 	reqCh        chan *DFAMsg
 	conn         io.ReadWriteCloser
+	rtdeConn     net.Conn
 	pendingOKAck chan<- bool
 	// These are pending writes which we have not yet processed at all.
 	pendingWrites []*DFAMsg
 }
 
-func NewUR3Downlink(up *Uplink, host string, port int) *UR3Downlink {
-	return &UR3Downlink{up: up, host: host, port: port, reqCh: make(chan *DFAMsg)}
+func NewUR3Downlink(up *Uplink, host string, port, rtdePort int) *UR3Downlink {
+	return &UR3Downlink{up: up, host: host, port: port, rtdePort: rtdePort, reqCh: make(chan *DFAMsg)}
 }
 
 func (dl *UR3Downlink) Connected() bool {
@@ -92,19 +97,83 @@ func (dl *UR3Downlink) handleDisconnected() State {
 }
 
 func (dl *UR3Downlink) connect() {
+	if dl.conn != nil {
+		dl.conn.Close()
+		dl.conn = nil
+	}
+	if dl.rtdeConn != nil {
+		dl.rtdeConn.Close()
+		dl.rtdeConn = nil
+	}
+
+	first := true
 	for {
+		if !first {
+			// Avoid immediate reconnects.
+			time.Sleep(10 * time.Second)
+		}
+		first = false
+
 		dl.up.WaitForConnection()
 		conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", dl.host, dl.port))
 		if err != nil {
-			dl.up.logf("Could not open connection to UR3 at %s:%d. Error: %v", dl.host, dl.port, err)
-			// Avoid immediate reconnects.
-			time.Sleep(10 * time.Second)
+			dl.up.logf("Could not open URScript connection to UR3 at %s:%d. Error: %v", dl.host, dl.port, err)
 			continue
 		}
-		dl.up.logf("Opened robot connection to %s:%d.", dl.host, dl.port)
+		dl.up.logf("Opened URScript robot connection to %s:%d.", dl.host, dl.port)
+		rtdeConn, err := ur.ConnectRTDE(dl.host, dl.rtdePort, "actual_TCP_speed")
+		if err != nil {
+			conn.Close()
+			dl.up.logf("Could not open RTDE connection to UR3 at %s:%d. Error: %v", dl.host, dl.rtdePort, err)
+			continue
+		}
 		dl.conn = conn
+		dl.rtdeConn = rtdeConn
+		go dl.readFromRTDE(dl.rtdeConn)
 		dl.reqCh <- &DFAMsg{Type: MsgConnected}
 		return
+	}
+}
+
+func l2(vec []float64) float64 {
+	var sum2 float64
+	for _, v := range vec {
+		sum2 += v * v
+	}
+	return math.Sqrt(sum2)
+}
+
+func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
+	prevState := "unknown"
+	for {
+		// Read incoming packages, decode them and generate events we are interested in.
+		typ, body, err := ur.ReceiveRTDEPacket(conn)
+		if err != nil {
+			// TODO(krasin): make sure we see this disconnect and act on it.
+			dl.up.logf("UR3Downlink.readFromRTDE, read error: %v", err)
+			return
+		}
+		if typ == ur.RTDE_DATA_PACKAGE {
+			vec := ur.ParseVector6D(body[1:])
+			linSpeed := l2(vec[:3])
+			rotSpeed := l2(vec[3:])
+			if linSpeed < 2E-5 {
+				linSpeed = 0
+			}
+			if rotSpeed < 5E-4 {
+				rotSpeed = 0
+			}
+			var state string
+			if linSpeed == 0 && rotSpeed == 0 {
+				state = "idle"
+			} else {
+				state = "moving"
+			}
+			if state != prevState {
+				dl.up.logf("Current UR moving state: %s, prev state: %s\n", state, prevState)
+			}
+			prevState = state
+		}
 	}
 }
 
