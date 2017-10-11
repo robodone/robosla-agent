@@ -181,7 +181,8 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 				state = "moving"
 			}
 			if state != prevState {
-				dl.onMovingStateChanged(state)
+				// Avoid blocking the real-time thread.
+				go dl.onMovingStateChanged(state)
 			}
 			prevState = state
 		}

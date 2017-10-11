@@ -8,9 +8,11 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 type RealSenseSnapshotter struct {
+	mu         sync.Mutex
 	up         *Uplink
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
@@ -30,6 +32,9 @@ type RealSenseTrainPackParams struct {
 }
 
 func (rss *RealSenseSnapshotter) TakeSnapshot(ctx context.Context, prefix string, numFrames int) error {
+	rss.mu.Lock()
+	defer rss.mu.Unlock()
+
 	if rss.cmd == nil {
 		cmd := exec.Command("/opt/robodone/realsense-snapshot")
 		stdin, err := cmd.StdinPipe()
