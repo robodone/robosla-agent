@@ -223,6 +223,7 @@ func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)
 	up.Notify(&device_api.UplinkMessage{
+		Type:           "notify-terminal-output",
 		TerminalOutput: fmt.Sprintf(format, args...),
 	})
 }
