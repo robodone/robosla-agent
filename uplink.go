@@ -22,11 +22,11 @@ type Uplink struct {
 	deviceName    string
 	// This is likely not an appropriate place, but I don't have good ideas right now.
 	jobName  string
-	notifyCh chan string
+	notifyCh chan *device_api.UplinkMessage
 }
 
 func NewUplink(apiServerAddr string) *Uplink {
-	return &Uplink{apiServerAddr: apiServerAddr, nd: pubsub.NewNode(), notifyCh: make(chan string, 10)}
+	return &Uplink{apiServerAddr: apiServerAddr, nd: pubsub.NewNode(), notifyCh: make(chan *device_api.UplinkMessage, 20)}
 }
 
 func (up *Uplink) getClient() *device_api.Client {
@@ -117,36 +117,36 @@ func (up *Uplink) Sub(paths ...string) (*pubsub.Sub, error) {
 }
 
 // Notify makes best effort to notify about the received terminal output or errors.
-func (up *Uplink) Notify(out string) {
-	up.notifyCh <- out
+func (up *Uplink) Notify(msg *device_api.UplinkMessage) {
+	up.notifyCh <- msg
 }
 
 func (up *Uplink) runNotify() {
-	var pending []string
+	var pending []*device_api.UplinkMessage
 	inProgress := false
 	doneCh := make(chan bool)
 	for {
-		var out string
+		var msg *device_api.UplinkMessage
 		if inProgress {
 			select {
-			case out = <-up.notifyCh:
+			case msg = <-up.notifyCh:
 			case <-doneCh:
 				inProgress = false
 				if len(pending) == 0 {
 					continue
 				}
-				out = pending[0]
+				msg = pending[0]
 				pending = pending[1:]
 			}
 		} else {
-			out = <-up.notifyCh
+			msg = <-up.notifyCh
 		}
 		if inProgress {
-			pending = append(pending, out)
+			pending = append(pending, msg)
 			continue
 		}
 		inProgress = true
-		go func(out string) {
+		go func(msg *device_api.UplinkMessage) {
 			defer func() { doneCh <- true }()
 			client := up.getClient()
 			if client == nil {
@@ -154,12 +154,12 @@ func (up *Uplink) runNotify() {
 				// or just forget about them. Let's just forget. They are low value.
 				return
 			}
-			err := client.SendTerminalOutput(out)
+			err := client.Notify(msg)
 			if err != nil {
 				// TODO(krasin): rate limit messages from here.
-				log.Printf("Failed to send terminal output: %v", err)
+				log.Printf("Failed to notify: %v", err)
 			}
-		}(out)
+		}(msg)
 	}
 }
 
@@ -178,51 +178,53 @@ func (up *Uplink) WaitForConnection() {
 }
 
 func (up *Uplink) NotifyJobDone(jobName string, success bool, comment string) {
-	up.Notify(up.bestJson(&device_api.UplinkMessage{
+	up.Notify(&device_api.UplinkMessage{
 		Type:    "notify-job-done",
 		JobName: jobName,
 		Success: success,
 		Comment: comment,
-	}))
+	})
 }
 
 func (up *Uplink) NotifyJobProgress(jobName string, progress float64, elapsed, remaining time.Duration) {
-	up.Notify(up.bestJson(&device_api.UplinkMessage{
+	up.Notify(&device_api.UplinkMessage{
 		Type:      "notify-job-progress",
 		JobName:   jobName,
 		Progress:  progress,
 		Elapsed:   elapsed,
 		Remaining: remaining,
-	}))
+	})
 }
 
 func (up *Uplink) NotifyFrameIndex(jobName string, frameIndex, numFrames int) {
-	up.Notify(up.bestJson(&device_api.UplinkMessage{
+	up.Notify(&device_api.UplinkMessage{
 		Type:       "notify-frame-index",
 		JobName:    jobName,
 		FrameIndex: frameIndex,
 		NumFrames:  numFrames,
-	}))
+	})
 }
 
 func (up *Uplink) NotifySnapshot(cameras map[string]string) {
-	up.Notify(up.bestJson(&device_api.UplinkMessage{
+	up.Notify(&device_api.UplinkMessage{
 		Type:    "notify-snapshot",
 		Cameras: cameras,
-	}))
+	})
 }
 
 func (up *Uplink) NotifyMovingState(state string) {
-	up.Notify(up.bestJson(&device_api.UplinkMessage{
+	up.Notify(&device_api.UplinkMessage{
 		Type:        "notify-moving-state",
 		MovingState: state,
-	}))
+	})
 }
 
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)
-	up.Notify(fmt.Sprintf(format, args...))
+	up.Notify(&device_api.UplinkMessage{
+		TerminalOutput: fmt.Sprintf(format, args...),
+	})
 }
 
 func (up *Uplink) Fatalf(format string, args ...interface{}) {
