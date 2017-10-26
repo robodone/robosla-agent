@@ -28,7 +28,8 @@ int main(void) {
 
   rs::device * dev = ctx.get_device(0);
   fprintf(stderr, "RealSense device opened: %s, SN %s, firmware version %s\n",
-	  dev->get_name(), dev->get_serial(), dev->get_firmware_version());
+          dev->get_name(), dev->get_serial(), dev->get_firmware_version());
+  fprintf(stderr, "Depth scale: %f\n", dev->get_depth_scale());
 
   // Check that the camera supports color and depth streams and enable them.
   if (!dev->supports(rs::capabilities::color)) {
