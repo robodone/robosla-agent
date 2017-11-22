@@ -22,6 +22,8 @@ import (
 	"github.com/vincent-petithory/dataurl"
 )
 
+const numSaturationDelays = 20
+
 type Executor struct {
 	up      *Uplink
 	down    Downlink
@@ -46,6 +48,11 @@ func isCanceled(ctx context.Context) bool {
 func (exe *Executor) ExecuteFewCommands(ctx context.Context, cmds ...string) (err error) {
 	if !exe.down.Connected() {
 		return errors.New("can't execute commands: printer not connected")
+	}
+	// Append with enough small delays to saturate the command buffer. That allows us to make sure,
+	// that this function returns when all important commands are executed.
+	for i := 0; i < numSaturationDelays; i++ {
+		cmds = append(cmds, "G4 P1")
 	}
 	for i := 0; i < len(cmds); i++ {
 		if isCanceled(ctx) {
