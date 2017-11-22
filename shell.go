@@ -86,7 +86,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			err := sh.exe.ExecuteFewCommands(ctx, "M106", "M107 P1", "G4 P1000", "M106 P1")
 			cancel()
 			if err != nil {
-				sh.up.logf("Failed to grip: %v", err)
+				sh.up.logf("Failed to drop: %v", err)
 			}
 			continue
 		case "grip":
