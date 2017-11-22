@@ -88,6 +88,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			if err != nil {
 				sh.up.logf("Failed to drop: %v", err)
 			}
+			sh.up.NotifyGripperState("open")
 			continue
 		case "grip":
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -96,6 +97,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			if err != nil {
 				sh.up.logf("Failed to grip: %v", err)
 			}
+			sh.up.NotifyGripperState("closed")
 			continue
 		case "cut":
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

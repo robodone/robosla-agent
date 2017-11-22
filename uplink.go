@@ -219,6 +219,13 @@ func (up *Uplink) NotifyMovingState(state string) {
 	})
 }
 
+func (up *Uplink) NotifyGripperState(state string) {
+	up.Notify(&device_api.UplinkMessage{
+		Type:         "notify-gripper-state",
+		GripperState: state,
+	})
+}
+
 func (up *Uplink) logf(format string, args ...interface{}) {
 	format = strings.TrimRight(format, "\n")
 	logf(format, args...)
