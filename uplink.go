@@ -250,7 +250,7 @@ func (up *Uplink) runFlushLogs(delay time.Duration) {
 	}
 }
 
-func flushLogs(delay time.Duration) {
+func (up *Uplink) flushLogs(delay time.Duration) {
 	up.pendingLogsMu.Lock()
 	defer up.pendingLogsMu.Unlock()
 
