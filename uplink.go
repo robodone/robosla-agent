@@ -23,6 +23,11 @@ type Uplink struct {
 	// This is likely not an appropriate place, but I don't have good ideas right now.
 	jobName  string
 	notifyCh chan *device_api.UplinkMessage
+
+	// Pending logs
+	pendingLogsMu    sync.Mutex
+	pendingLogs      []string
+	pendingLogsStart time.Time
 }
 
 func NewUplink(apiServerAddr string) *Uplink {
@@ -57,6 +62,7 @@ func (up *Uplink) SetJobName(jobName string) {
 func (up *Uplink) Run() {
 	go up.runNotify()
 	go up.runKeepAlive()
+	go up.runFlushLogs(time.Second)
 	for {
 		if up.getClient() != nil {
 			up.setClientAndDeviceName(nil, "")
@@ -227,12 +233,41 @@ func (up *Uplink) NotifyGripperState(state string) {
 }
 
 func (up *Uplink) logf(format string, args ...interface{}) {
+	up.pendingLogsMu.Lock()
+	defer up.pendingLogsMu.Unlock()
 	format = strings.TrimRight(format, "\n")
+	if len(up.pendingLogs) == 0 {
+		up.pendingLogsStart = time.Now()
+	}
+	up.pendingLogs = append(up.pendingLogs, fmt.Sprintf(format, args...))
 	logf(format, args...)
+}
+
+func (up *Uplink) runFlushLogs(delay time.Duration) {
+	for {
+		time.Sleep(delay)
+		up.flushLogs(delay)
+	}
+}
+
+func flushLogs(delay time.Duration) {
+	up.pendingLogsMu.Lock()
+	defer up.pendingLogsMu.Unlock()
+
+	if len(up.pendingLogs) == 0 {
+		// Already flushed.
+		return
+	}
+	if time.Now().Sub(up.pendingLogsStart) < delay/2 {
+		// Too fresh logs. It's worth waiting for longer.
+		return
+	}
+
 	up.Notify(&device_api.UplinkMessage{
 		Type:           "notify-terminal-output",
-		TerminalOutput: fmt.Sprintf(format, args...),
+		TerminalOutput: strings.Join(up.pendingLogs, "\n"),
 	})
+	up.pendingLogs = nil
 }
 
 func (up *Uplink) Fatalf(format string, args ...interface{}) {
