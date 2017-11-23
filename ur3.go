@@ -18,7 +18,7 @@ type UR3Downlink struct {
 	host                 string
 	port                 int
 	rtdePort             int
-	onMovingStateChanged func(state string)
+	onMovingStateChanged func(state string, pose []float64)
 	reqCh                chan *DFAMsg
 	conn                 io.ReadWriteCloser
 	rtdeConn             net.Conn
@@ -27,9 +27,9 @@ type UR3Downlink struct {
 	pendingWrites []*DFAMsg
 }
 
-func NewUR3Downlink(up *Uplink, host string, port, rtdePort int, onMovingStateChanged func(state string)) *UR3Downlink {
+func NewUR3Downlink(up *Uplink, host string, port, rtdePort int, onMovingStateChanged func(state string, pose []float64)) *UR3Downlink {
 	if onMovingStateChanged == nil {
-		onMovingStateChanged = func(state string) {}
+		onMovingStateChanged = func(state string, pose []float64) {}
 	}
 	return &UR3Downlink{
 		up:                   up,
@@ -165,7 +165,8 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 			return
 		}
 		if typ == ur.RTDE_DATA_PACKAGE {
-			vec := ur.ParseVector6D(body[1:])
+			// actual_TCP_speed
+			vec := ur.ParseVector6D(body[1:49])
 			linSpeed := l2(vec[:3])
 			rotSpeed := l2(vec[3:])
 			if linSpeed < 2E-5 {
@@ -180,9 +181,11 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 			} else {
 				state = "moving"
 			}
+			// actual_TCP_pose
+			pose := ur.ParseVector6D(body[49:97])
 			if state != prevState {
 				// Avoid blocking the real-time thread.
-				go dl.onMovingStateChanged(state)
+				go dl.onMovingStateChanged(state, pose)
 			}
 			prevState = state
 		}

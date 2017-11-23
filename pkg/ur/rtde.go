@@ -128,7 +128,7 @@ func ConnectRTDE(host string, port int, output string) (net.Conn, error) {
 		_, _, err = sendAndReceive(conn, typ, bodyParts...)
 	}
 	sr(RTDE_REQUEST_PROTOCOL_VERSION, u16Bytes(RTDE_PROTOCOL_VERSION))
-	sr(RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS, f64Bytes(6 /* frequency */), []byte("actual_TCP_speed"))
+	sr(RTDE_CONTROL_PACKAGE_SETUP_OUTPUTS, f64Bytes(6 /* frequency */), []byte("actual_TCP_speed,actual_TCP_pose"))
 	sr(RTDE_CONTROL_PACKAGE_START)
 	if err != nil {
 		return nil, fmt.Errorf("failed to establish RTDE connection to a UR robot: %v", err)

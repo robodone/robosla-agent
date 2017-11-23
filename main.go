@@ -85,8 +85,8 @@ func main() {
 		if *virtual {
 			up.Fatalf("virtual UR3 is not supported")
 		}
-		notifyMovingState := func(state string) {
-			up.NotifyMovingState(state)
+		notifyMovingState := func(state string, pose []float64) {
+			up.NotifyMovingState(state, pose)
 			// We try to take snapshot, if we are not moving.
 			if state != "moving" && rss != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

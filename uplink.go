@@ -218,10 +218,11 @@ func (up *Uplink) NotifySnapshot(cameras map[string]string) {
 	})
 }
 
-func (up *Uplink) NotifyMovingState(state string) {
+func (up *Uplink) NotifyMovingState(state string, pose []float64) {
 	up.Notify(&device_api.UplinkMessage{
 		Type:        "notify-moving-state",
 		MovingState: state,
+		Pose:        pose,
 	})
 }
 
