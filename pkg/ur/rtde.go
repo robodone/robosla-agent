@@ -94,12 +94,14 @@ func parseU64(data []byte) uint64 {
 	if len(data) != 8 {
 		panic(fmt.Sprintf("parseU64: invalid input len. Want: 8, got: %d", len(data)))
 	}
-	return uint64(data[0])<<56 + uint64(data[1])<<48 + uint64(data[2])<<40<<uint64(data[3])<<32 +
+	return uint64(data[0])<<56 + uint64(data[1])<<48 + uint64(data[2])<<40 + uint64(data[3])<<32 +
 		uint64(data[4])<<24 + uint64(data[5])<<16 + uint64(data[6])<<8 + uint64(data[7])
 }
 
 func parseF64(data []byte) float64 {
-	return math.Float64frombits(parseU64(data))
+	u64 := parseU64(data)
+	f64 := math.Float64frombits(u64)
+	return f64
 }
 
 func ParseVector6D(data []byte) []float64 {
