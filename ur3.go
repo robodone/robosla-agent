@@ -156,6 +156,7 @@ func l2(vec []float64) float64 {
 
 func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 	prevState := "unknown"
+	var lastPoseSent time.Time
 	for {
 		// Read incoming packages, decode them and generate events we are interested in.
 		typ, body, err := ur.ReceiveRTDEPacket(conn)
@@ -183,7 +184,9 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 			}
 			// actual_TCP_pose
 			pose := ur.ParseVector6D(body[49:97])
-			if state != prevState {
+			now := time.Now()
+			if state != prevState || now.Sub(lastPoseSent) > time.Second {
+				lastPoseSent = now
 				// Avoid blocking the real-time thread.
 				go dl.onMovingStateChanged(state, pose)
 			}
