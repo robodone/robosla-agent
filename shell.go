@@ -84,14 +84,14 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 		case "drop":
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			sh.up.NotifyGripperState("opening")
-			err := sh.exe.ExecuteFewCommands(ctx, "M106", "M107 P1", "G4 P100")
+			err := sh.exe.ExecuteFewCommands(ctx, "M106", "M107 P1", "G4 P200")
 			if err != nil {
 				cancel()
 				sh.up.logf("Failed to drop: %v", err)
 				continue
 			}
 			sh.up.NotifyGripperState("venting")
-			err = sh.exe.ExecuteFewCommands(ctx, "G4 P900", "M106 P1")
+			err = sh.exe.ExecuteFewCommands(ctx, "G4 P800", "M106 P1")
 			cancel()
 			if err != nil {
 				sh.up.logf("Failed to complete drop: %v", err)
