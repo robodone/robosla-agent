@@ -177,9 +177,12 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 				rotSpeed = 0
 			}
 			var state string
-			if linSpeed == 0 && rotSpeed == 0 {
+			switch {
+			case linSpeed == 0 && rotSpeed == 0:
 				state = "idle"
-			} else {
+			case linSpeed < 3E-2 && rotSpeed < 3E-2:
+				state = "slow"
+			default:
 				state = "moving"
 			}
 			// actual_TCP_pose
