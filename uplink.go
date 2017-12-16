@@ -40,6 +40,23 @@ func (up *Uplink) getClient() *device_api.Client {
 	return up.client
 }
 
+func (up *Uplink) DeviceName() string {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	return up.deviceName
+}
+
+func (up *Uplink) WaitForDeviceName() string {
+	for {
+		deviceName := up.DeviceName()
+		if deviceName != "" {
+			return deviceName
+		}
+		up.logf("Waiting for device name...")
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func (up *Uplink) setClientAndDeviceName(client *device_api.Client, deviceName string) {
 	up.mu.Lock()
 	defer up.mu.Unlock()

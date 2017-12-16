@@ -55,6 +55,10 @@ func main() {
 	}
 	up := NewUplink(*apiServer)
 	go up.Run()
+	// Note: this may potentially block it forever. Only an autoupdate could resolve it.
+	// But it's not that we have other option, because the agent has to behave differently for
+	// different types of devices.
+	deviceName := up.WaitForDeviceName()
 
 	var rss *RealSenseSnapshotter
 	if *realSense {
@@ -71,6 +75,11 @@ func main() {
 			/*realDown := NewRealDownlink(up, *baudRate)
 			go realDown.Run()
 			down = realDown*/
+			// TODO(krasin): get settings from the server instead of hardcoding them.
+			if deviceName == "0348697d48dd0924" {
+				up.logf("Forcing baud rate = 250000")
+				*baudRate = 250000
+			}
 			dfaDown := NewDFADownlink(up, *baudRate)
 			go dfaDown.Run()
 			down = dfaDown
