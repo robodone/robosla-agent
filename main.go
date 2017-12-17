@@ -77,8 +77,8 @@ func main() {
 			down = realDown*/
 			// TODO(krasin): get settings from the server instead of hardcoding them.
 			if deviceName == "0348697d48dd0924" {
-				up.logf("Forcing baud rate = 250000")
-				*baudRate = 250000
+				up.logf("Forcing baud rate = 57600")
+				*baudRate = 57600
 			}
 			dfaDown := NewDFADownlink(up, *baudRate)
 			go dfaDown.Run()

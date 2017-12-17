@@ -9,8 +9,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/robodone/robosla-agent/gcode"
 	"github.com/samofly/serial"
 )
 
@@ -34,6 +36,10 @@ type DFADownlink struct {
 	pendingOKAck chan<- bool
 	// These are pending writes which we have not yet processed at all.
 	pendingWrites []*DFAMsg
+	lineno        int
+
+	lastWriteMu sync.Mutex
+	lastWrite   string
 }
 
 func NewDFADownlink(up *Uplink, baudRate int) *DFADownlink {
@@ -174,6 +180,11 @@ func (dl *DFADownlink) connect() {
 
 func (dl *DFADownlink) handleConnecting() State {
 	dl.up.logf("State: Connecting")
+	dl.lineno = 0
+	dl.lastWriteMu.Lock()
+	dl.lastWrite = ""
+	dl.lastWriteMu.Unlock()
+
 	for msg := range dl.reqCh {
 		switch msg.Type {
 		case MsgConnected:
@@ -262,7 +273,8 @@ func (dl *DFADownlink) handleNormal() State {
 			dl.up.Fatalf("RespCh == nil in MsgWriteAndWaitForOK message. Inconceivable!")
 		}
 		dl.pendingOKAck = msg.RespCh
-		go dl.write(dl.conn, msg.Cmd)
+		dl.lineno++
+		go dl.write(dl.conn, gcode.AddLineAndHash(dl.lineno, msg.Cmd), false)
 		return WaitingForOK
 	}
 	if len(dl.pendingWrites) > 0 {
@@ -290,8 +302,7 @@ func (dl *DFADownlink) handleNormal() State {
 			dl.up.Fatalf("handleNormal: received MsgWritten. Inconceivable!")
 		case MsgResend:
 			// It is possible to receive MsgResend, if we screwed up something earlier. Or may be there was some glitch on the wire.
-			// Currently, we don't yet support line numbers, so it's impossible to implement.
-			dl.up.Fatalf("handleNormal: MsgResend is not implemented")
+			dl.up.logf("handleNormal: MsgResend is not expected at this stage. Ignoring...")
 		case MsgSomeReply:
 			// Just ignore.
 		default:
@@ -302,20 +313,35 @@ func (dl *DFADownlink) handleNormal() State {
 	return Terminated
 }
 
-func (dl *DFADownlink) write(conn io.ReadWriteCloser, cmd string) {
+func (dl *DFADownlink) write(conn io.ReadWriteCloser, cmd string, isResend bool) {
 	dl.up.logf("> %s", cmd)
 	var err error
 	defer func() {
 		if err != nil {
 			dl.up.logf("DFADownlink write error: %v", err)
 		}
-		dl.reqCh <- &DFAMsg{Type: MsgWritten, Err: err}
+		if !isResend {
+			dl.reqCh <- &DFAMsg{Type: MsgWritten, Err: err}
+		}
 	}()
 	if !strings.HasSuffix(cmd, "\n") {
 		cmd += "\n"
 	}
+	dl.lastWriteMu.Lock()
+	dl.lastWrite = cmd
+	dl.lastWriteMu.Unlock()
 	_, err = dl.conn.Write([]byte(cmd))
 	return
+}
+
+func (dl *DFADownlink) resend() {
+	dl.lastWriteMu.Lock()
+	lastWrite := dl.lastWrite
+	dl.lastWriteMu.Unlock()
+	if lastWrite == "" {
+		dl.up.Fatalf("DFADownlink.resend: lastWrite is empty")
+	}
+	dl.write(dl.conn, lastWrite, true /*isResend*/)
 }
 
 func (dl *DFADownlink) handleWaitingForOK() State {
@@ -381,9 +407,8 @@ func (dl *DFADownlink) handleWaitingForOK() State {
 			}
 			dl.up.logf("handleWaitingForOK: got MsgWritten, now waiting for OK.")
 		case MsgResend:
-			// It is possible to receive MsgResend, if we screwed up something earlier. Or may be there was some glitch on the wire.
-			// Currently, we don't yet support line numbers, so it's impossible to implement.
-			dl.up.Fatalf("handleWaitingForOK: MsgResend is not implemented")
+			dl.up.logf("handleWaitingForOK: resending line %d", msg.Lineno)
+			dl.resend()
 		case MsgSomeReply:
 			gotSomeReply = true
 		default:
