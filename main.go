@@ -76,7 +76,7 @@ func main() {
 			go realDown.Run()
 			down = realDown*/
 			// TODO(krasin): get settings from the server instead of hardcoding them.
-			if deviceName == "0348697d48dd0924" {
+			if deviceName == "60d7ef1765337d23" /*Delta-01*/ {
 				up.logf("Forcing baud rate = 57600")
 				*baudRate = 57600
 			}
