@@ -60,9 +60,13 @@ func main() {
 	// different types of devices.
 	deviceName := up.WaitForDeviceName()
 
-	var rss *RealSenseSnapshotter
+	var rss Snapshotter
 	if *realSense {
 		rss = &RealSenseSnapshotter{up: up}
+	}
+	if deviceName == "7f51037e15b4c836" {
+		// Samovar-01
+		rss = &RaspistillSnapshotter{up: up}
 	}
 	exe := NewExecutor(up, *virtual, rss)
 

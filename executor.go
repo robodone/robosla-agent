@@ -28,11 +28,11 @@ type Executor struct {
 	up      *Uplink
 	down    Downlink
 	virtual bool
-	rss     *RealSenseSnapshotter
+	rss     Snapshotter
 }
 
 // NB: the caller MUST set downlink before using the executor.
-func NewExecutor(up *Uplink, virtual bool, rss *RealSenseSnapshotter) *Executor {
+func NewExecutor(up *Uplink, virtual bool, rss Snapshotter) *Executor {
 	return &Executor{up: up, virtual: virtual, rss: rss}
 }
 
