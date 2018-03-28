@@ -565,6 +565,7 @@ func (exe *Executor) Snapshot(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to list images in %s: %v", dirName, err)
 	}
+	exe.up.logf("Snapshot fnames: %v", fnames)
 	cameras := make(map[string]string)
 	for _, fname := range fnames {
 		data, err := ioutil.ReadFile(path.Join(dirName, fname))
