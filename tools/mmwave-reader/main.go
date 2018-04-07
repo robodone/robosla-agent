@@ -131,7 +131,7 @@ func configureRadar(cfgConn serial.Port) (err error) {
 	send("chirpCfg 0 0 0 0 0 0 0 1")
 	send("chirpCfg 1 1 0 0 0 0 0 4")
 	send("chirpCfg 2 2 0 0 0 0 0 2")
-	send("frameCfg 0 2 16 0 1000 1 0")
+	send("frameCfg 0 2 16 0 1200 1 0")
 	send("guiMonitor 1 1 0 0 0 1")
 	send("cfarCfg 0 2 8 4 3 0 1280")
 	send("peakGrouping 1 1 1 1 114")
