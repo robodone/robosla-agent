@@ -71,6 +71,7 @@ func readFromCfg(conn serial.Port) error {
 
 func readFromData(conn serial.Port) error {
 	r := bufio.NewReaderSize(conn, BufferSize)
+	cube := make([]byte, 128*16*3*4*4) // numRangeBins * numDopplerBins * numTxAntennas * numRxAntennas * 4 bytes
 	for {
 		data, err := r.Peek(PreviewSize)
 		if err != nil && err != io.EOF {
@@ -103,6 +104,11 @@ func readFromData(conn serial.Port) error {
 			return err
 		}
 		log.Printf("hdr: %+v", hdr)
+		r.Discard(int(hdr.TotalPacketLen) - HeaderSize)
+		if _, err = io.ReadFull(r, cube); err != nil {
+			return fmt.Errorf("failed to read radar data cube (size: %d): %v", len(cube), err)
+		}
+		log.Printf("cube[:16]: %02x", cube[:16])
 	}
 	return nil
 }
