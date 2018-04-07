@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	BufferSize  = 128 << 10
-	PreviewSize = 16 << 10
+	BufferSize  = 4 << 10
+	PreviewSize = 1 << 10
 	HeaderSize  = 36
 )
 
@@ -127,21 +127,21 @@ func configureRadar(cfgConn serial.Port) (err error) {
 	send("channelCfg 15 7 0")
 	send("adcCfg 2 1")
 	send("adcbufCfg 0 1 0 1")
-	send("profileCfg 0 77 267 7 57.14 0 0 70 1 240 4884 0 0 30")
+	send("profileCfg 0 77 267 7 57.14 0 0 70 1 112 2279 0 0 30")
 	send("chirpCfg 0 0 0 0 0 0 0 1")
 	send("chirpCfg 1 1 0 0 0 0 0 4")
 	send("chirpCfg 2 2 0 0 0 0 0 2")
-	send("frameCfg 0 2 16 0 100 1 0")
+	send("frameCfg 0 2 16 0 1000 1 0")
 	send("guiMonitor 1 1 0 0 0 1")
 	send("cfarCfg 0 2 8 4 3 0 1280")
-	send("peakGrouping 1 1 1 1 229")
+	send("peakGrouping 1 1 1 1 114")
 	send("multiObjBeamForming 1 0.5")
 	send("clutterRemoval 0")
 	send("calibDcRangeSig 0 -5 8 256")
 	send("compRangeBiasAndRxChanPhase 0.0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0")
 	send("measureRangeBiasAndRxChanPhase 0 1.5 0.2")
 	send("CQRxSatMonitor 0 3 5 123 0")
-	send("CQSigImgMonitor 0 119 4")
+	send("CQSigImgMonitor 0 55 4")
 	send("analogMonitor 1 1")
 	send("sensorStart")
 	return
