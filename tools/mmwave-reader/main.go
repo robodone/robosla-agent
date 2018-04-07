@@ -2,8 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"strings"
 	"time"
@@ -11,12 +14,31 @@ import (
 	"github.com/samofly/serial"
 )
 
+const (
+	BufferSize  = 128 << 10
+	PreviewSize = 16 << 10
+	HeaderSize  = 36
+)
+
 var (
+	MagicWord = []byte{0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0x08, 0x07} // {0x0102,0x0304,0x0506,0x0708}
+
 	cfgDev   = flag.String("cfgdev", "", "Configuration serial port")
 	cfgBaud  = flag.Int("cfgbaud", 115200, "Configuration baud rate")
 	dataDev  = flag.String("datadev", "", "Data serial port")
 	dataBaud = flag.Int("databaud", 921600, "Data baud rate")
 )
+
+type Header struct {
+	Magic          [8]byte
+	Version        uint32
+	TotalPacketLen uint32
+	Platform       uint32
+	FrameNumber    uint32
+	TimeCPUCycles  uint32
+	NumDetectedObj uint32
+	NumTLVs        uint32
+}
 
 func failf(format string, args ...interface{}) {
 	if !strings.HasSuffix(format, "\n") {
@@ -34,15 +56,55 @@ func mustOpen(name, ttyDev string, baudRate int) serial.Port {
 	return conn
 }
 
-func readFromDevice(conn serial.Port) {
+func readFromCfg(conn serial.Port) error {
 	in := bufio.NewScanner(conn)
 	for in.Scan() {
 		txt := strings.TrimSpace(in.Text())
 		log.Printf("%s\n", txt)
 	}
 	if err := in.Err(); err != nil {
-		log.Printf("readFromDevice: %v", err)
+		log.Printf("readFromCfg: %v", err)
+		return err
 	}
+	return nil
+}
+
+func readFromData(conn serial.Port) error {
+	r := bufio.NewReaderSize(conn, BufferSize)
+	for {
+		data, err := r.Peek(PreviewSize)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if len(data) < HeaderSize {
+			// Not enough data, let's wait a bit.
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		pos := bytes.Index(data, MagicWord)
+		if pos < 0 {
+			// No magic word in the preview window. Discarding the data.
+			log.Printf("Discard %d bytes", len(data))
+			r.Discard(len(data))
+			continue
+		}
+		if pos > 0 {
+			// Discard the remainings of the previous frame.
+			log.Printf("Discard %d bytes", pos)
+			r.Discard(pos)
+		}
+		_, err = r.Peek(HeaderSize)
+		if err == io.EOF {
+			// Not enough data
+			continue
+		}
+		var hdr Header
+		if err = binary.Read(r, binary.LittleEndian, &hdr); err != nil {
+			return err
+		}
+		log.Printf("hdr: %+v", hdr)
+	}
+	return nil
 }
 
 func configureRadar(cfgConn serial.Port) (err error) {
@@ -97,10 +159,12 @@ func main() {
 	defer cfgConn.Close()
 	dataConn := mustOpen("data", *dataDev, *dataBaud)
 	defer dataConn.Close()
-	go readFromDevice(cfgConn)
+	go readFromCfg(cfgConn)
 
 	if err := configureRadar(cfgConn); err != nil {
 		failf("Failed to configure the radar device: %v", err)
 	}
-	select {}
+	if err := readFromData(dataConn); err != nil {
+		failf("Failed to read radar data: %v", err)
+	}
 }
