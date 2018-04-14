@@ -6,7 +6,10 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
+	"io/ioutil"
 	"log"
 	"strings"
 	"time"
@@ -69,6 +72,35 @@ func readFromCfg(conn serial.Port) error {
 	return nil
 }
 
+// We assume that cube consists of serialized fixed-point little-endian float16 numbers.
+// We return a slice of uint16 values. The result length is exactly
+// the half of the input length.
+func cubeToUint16(cube []byte) []uint16 {
+	res := make([]uint16, len(cube)/2)
+	for i := range res {
+		res[i] = uint16(cube[i*2]) + uint16(cube[i*2+1])<<8
+	}
+	return res
+}
+
+func cubeToPNG(cube []byte, width, height int) ([]byte, error) {
+	if width*height*2 != len(cube) {
+		return nil, fmt.Errorf("unexpected length of cube, want w*h*2 = %d*%d*2 = %d, got %d",
+			width, height, width*height*2, len(cube))
+	}
+	img := image.NewGray16(image.Rect(0, 0, width, height))
+	// 1. Make it big-endian.
+	copy(img.Pix, cube)
+	for i := 0; i*2+1 < len(cube); i++ {
+		img.Pix[i*2], img.Pix[i*2+1] = img.Pix[i*2+1], img.Pix[i*2]
+	}
+	var res bytes.Buffer
+	if err := png.Encode(&res, img); err != nil {
+		return nil, fmt.Errorf("failed to encode PNG: %v", err)
+	}
+	return res.Bytes(), nil
+}
+
 func readFromData(conn serial.Port) error {
 	r := bufio.NewReaderSize(conn, BufferSize)
 	cube := make([]byte, 128*16*3*4*4) // numRangeBins * numDopplerBins * numTxAntennas * numRxAntennas * 4 bytes
@@ -108,7 +140,19 @@ func readFromData(conn serial.Port) error {
 		if _, err = io.ReadFull(r, cube); err != nil {
 			return fmt.Errorf("failed to read radar data cube (size: %d): %v", len(cube), err)
 		}
-		log.Printf("cube[:16]: %02x", cube[:16])
+		ucube := cubeToUint16(cube)
+		log.Printf("ucube[:16]: %v", ucube[:128])
+		pngData, err := cubeToPNG(cube, 384, 128)
+		if err != nil {
+			return fmt.Errorf("cubeToPNG: %v", err)
+		}
+		log.Printf("PNG datalen: %d", len(pngData))
+		go func(frame int, data []byte) {
+			fname := fmt.Sprintf("radar-cube-%04d.png", frame)
+			if err := ioutil.WriteFile(fname, data, 0644); err != nil {
+				log.Printf("Error: can't save %s: %v", fname, err)
+			}
+		}(int(hdr.FrameNumber), pngData)
 	}
 	return nil
 }
