@@ -3,13 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sync"
+	"syscall"
+	"time"
 )
 
+var raspistillOutFname = "/tmp/robosla-raspistill.jpg"
+
 type RaspistillSnapshotter struct {
-	mu sync.Mutex
-	up *Uplink
+	mu  sync.Mutex
+	up  *Uplink
+	cmd *exec.Cmd
 }
 
 func (rss *RaspistillSnapshotter) TakeSnapshot(ctx context.Context, prefix string, numFrames int) error {
@@ -19,13 +25,50 @@ func (rss *RaspistillSnapshotter) TakeSnapshot(ctx context.Context, prefix strin
 	rss.mu.Lock()
 	defer rss.mu.Unlock()
 
-	fname := fmt.Sprintf("%s%02d-camera0.jpg", prefix, 0)
-	cmd := exec.Command("/usr/bin/raspistill", "-w", "640", "-h", "480", "--timeout", "1", "-q", "65", "-o", fname)
-	data, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to take a raspistill snapshot: %v\nCombined output:\n%v", err, string(data))
+	if rss.cmd == nil {
+		cmd := exec.Command("/usr/bin/raspistill", "-s", "-t", "0", "-w", "640", "-h", "480", "-o", raspistillOutFname)
+		//if err := cmd.Start(); err != nil {
+		//	return fmt.Errorf("failed to start raspistill: %v", err)
+		//}
+		rss.cmd = cmd
+		rss.up.logf("About to start raspistill with the command: %v", cmd)
+		go func() {
+			data, err := cmd.CombinedOutput()
+			rss.up.logf("raspistill exited, stdout/stderr: %v, err: %v", string(data), err)
+		}()
+		// Give it some time to start up.
+		time.Sleep(2 * time.Second)
+		rss.up.logf("2 seconds since the start. Cmd: %v", cmd)
 	}
-	rss.up.logf("raspistill output: %s. fname: %s", string(data), fname)
+	if err := os.RemoveAll(raspistillOutFname); err != nil {
+		return fmt.Errorf("can't delete stale raspistill output %s: %v", raspistillOutFname, err)
+	}
+
+	fname := fmt.Sprintf("%s%02d-camera0.jpg", prefix, 0)
+	// We need to send SIGUSR1 to raspistill, which will create a file on the disk.
+	if err := rss.cmd.Process.Signal(syscall.SIGUSR1); err != nil {
+		return fmt.Errorf("failed to send SIGUSR1 to raspistill: %v", err)
+	}
+	// Wait for the file to appear.
+	var i int
+	for ; i < 200; i++ {
+		_, err := os.Stat(raspistillOutFname)
+		if err == nil {
+			// The file has been created. Great!
+			break
+		}
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("can't stat %s: %v", raspistillOutFname, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	rss.up.logf("Waited for %v till snapshot appeared on the disk.", time.Duration(i)*10*time.Millisecond)
+	// The file is there. Rename it.
+	err := os.Rename(raspistillOutFname, fname)
+	if err != nil {
+		return fmt.Errorf("failed to create a raspistill snapshot: %v", err)
+	}
+	rss.up.logf("raspistill snapshot created. fname: %s", fname)
 
 	return nil
 }
