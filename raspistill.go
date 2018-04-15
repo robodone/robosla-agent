@@ -26,7 +26,10 @@ func (rss *RaspistillSnapshotter) TakeSnapshot(ctx context.Context, prefix strin
 	defer rss.mu.Unlock()
 
 	if rss.cmd == nil {
-		cmd := exec.Command("/usr/bin/raspistill", "-s", "-t", "0", "-w", "640", "-h", "480", "-o", raspistillOutFname)
+		cmd := exec.Command("/usr/bin/raspistill", "-s",
+			"--nopreview", "--exposure", "sports", "-t", "0",
+			"-w", "640", "-h", "480",
+			"-o", raspistillOutFname)
 		//if err := cmd.Start(); err != nil {
 		//	return fmt.Errorf("failed to start raspistill: %v", err)
 		//}
@@ -50,8 +53,8 @@ func (rss *RaspistillSnapshotter) TakeSnapshot(ctx context.Context, prefix strin
 		return fmt.Errorf("failed to send SIGUSR1 to raspistill: %v", err)
 	}
 	// Wait for the file to appear.
-	var i int
-	for ; i < 200; i++ {
+	start := time.Now()
+	for i := 0; i < 200; i++ {
 		_, err := os.Stat(raspistillOutFname)
 		if err == nil {
 			// The file has been created. Great!
@@ -62,7 +65,8 @@ func (rss *RaspistillSnapshotter) TakeSnapshot(ctx context.Context, prefix strin
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	rss.up.logf("Waited for %v till snapshot appeared on the disk.", time.Duration(i)*10*time.Millisecond)
+	waited := time.Now().Sub(start)
+	rss.up.logf("Waited for %v till snapshot appeared on the disk.", waited)
 	// The file is there. Rename it.
 	err := os.Rename(raspistillOutFname, fname)
 	if err != nil {
