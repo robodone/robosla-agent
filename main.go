@@ -64,8 +64,9 @@ func main() {
 	if *realSense {
 		rss = &RealSenseSnapshotter{up: up}
 	}
-	if deviceName == "7f51037e15b4c836" {
-		// Samovar-01
+	if deviceName == "7f51037e15b4c836" /* Samovar-01 */ ||
+		deviceName == "31dee22c9761f639" /* Wanhao-06 */ {
+
 		rss = &RaspistillSnapshotter{up: up}
 	}
 	exe := NewExecutor(up, *virtual, rss)

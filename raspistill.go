@@ -27,7 +27,7 @@ func (rss *RaspistillSnapshotter) TakeSnapshot(ctx context.Context, prefix strin
 
 	if rss.cmd == nil {
 		cmd := exec.Command("/usr/bin/raspistill", "-s",
-			"--nopreview", "--exposure", "sports", "-t", "0",
+			"--nopreview", "--exposure", "sports", "-t", "1",
 			"-w", "640", "-h", "480",
 			"-o", raspistillOutFname)
 		//if err := cmd.Start(); err != nil {
