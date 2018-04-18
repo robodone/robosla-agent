@@ -101,7 +101,7 @@ func cubeToPNG(cube []byte, width, height int) ([]byte, error) {
 	return res.Bytes(), nil
 }
 
-func readFromData(conn serial.Port) error {
+func readFromData(cfgConn, conn serial.Port) error {
 	r := bufio.NewReaderSize(conn, BufferSize)
 	cube := make([]byte, 128*16*3*4*4) // numRangeBins * numDopplerBins * numTxAntennas * numRxAntennas * 4 bytes
 	for {
@@ -153,8 +153,24 @@ func readFromData(conn serial.Port) error {
 				log.Printf("Error: can't save %s: %v", fname, err)
 			}
 		}(int(hdr.FrameNumber), pngData)
+		sendSerial(cfgConn, "sensorStop")
+		time.Sleep(2 * time.Second)
+		sendSerial(cfgConn, "sensorStart")
 	}
 	return nil
+}
+
+func sendSerial(conn serial.Port, cmd string) error {
+	if !strings.HasSuffix(cmd, "\n") {
+		cmd += "\n"
+	}
+	fmt.Print(cmd)
+	_, err := fmt.Fprint(conn, cmd)
+	if err != nil {
+		log.Printf("Error while writing to serial port: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	return err
 }
 
 func configureRadar(cfgConn serial.Port) (err error) {
@@ -162,12 +178,7 @@ func configureRadar(cfgConn serial.Port) (err error) {
 		if err != nil {
 			return
 		}
-		if !strings.HasSuffix(cmd, "\n") {
-			cmd += "\n"
-		}
-		_, err = fmt.Fprint(cfgConn, cmd)
-		fmt.Print(cmd)
-		time.Sleep(100 * time.Millisecond)
+		err = sendSerial(cfgConn, cmd)
 	}
 
 	send("% mmwave-reader")
@@ -214,7 +225,7 @@ func main() {
 	if err := configureRadar(cfgConn); err != nil {
 		failf("Failed to configure the radar device: %v", err)
 	}
-	if err := readFromData(dataConn); err != nil {
+	if err := readFromData(cfgConn, dataConn); err != nil {
 		failf("Failed to read radar data: %v", err)
 	}
 }
