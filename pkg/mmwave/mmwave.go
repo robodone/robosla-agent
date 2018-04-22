@@ -135,10 +135,12 @@ func (c *Conn) Configure() (err error) {
 
 func (c *Conn) TakeSnapshot() ([]byte, error) {
 	// Receive all stale data and forget it.
-	for {
-		_, ok := <-c.cubeCh
-		if !ok {
-			break
+	var cleared bool
+	for !cleared {
+		select {
+		case <-c.cubeCh:
+		default:
+			cleared = true
 		}
 	}
 	// Start the sensor
