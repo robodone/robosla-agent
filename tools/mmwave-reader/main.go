@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/robodone/robosla-agent/pkg/mmwave"
-	"github.com/samofly/serial"
 )
 
 var (
@@ -27,19 +25,6 @@ func failf(format string, args ...interface{}) {
 		format += "\n"
 	}
 	log.Fatalf(format, args...)
-}
-
-func readFromCfg(conn serial.Port) error {
-	in := bufio.NewScanner(conn)
-	for in.Scan() {
-		txt := strings.TrimSpace(in.Text())
-		log.Printf("%s\n", txt)
-	}
-	if err := in.Err(); err != nil {
-		log.Printf("readFromCfg: %v", err)
-		return err
-	}
-	return nil
 }
 
 func cubeToPNG(cube []byte, width, height int) ([]byte, error) {
@@ -73,7 +58,6 @@ func main() {
 		failf("can't open serial ports to mmWave radar: %v", err)
 	}
 	defer conn.Close()
-	go readFromCfg(conn.Cfg)
 
 	if err := conn.Configure(); err != nil {
 		failf("Failed to configure the radar device: %v", err)

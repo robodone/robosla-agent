@@ -62,6 +62,7 @@ func OpenDev(cfgDev string, cfgBaud int, dataDev string, dataBaud int) (res *Con
 		return nil, fmt.Errorf("failed to open data port: %v", err)
 	}
 	go res.readFromData(cubeCh)
+	go res.readFromCfg()
 	return res, nil
 }
 
@@ -205,4 +206,17 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 		time.Sleep(2 * time.Second)
 		cubeCh <- cube
 	}
+}
+
+func (c *Conn) readFromCfg() error {
+	in := bufio.NewScanner(c.Cfg)
+	for in.Scan() {
+		txt := strings.TrimSpace(in.Text())
+		log.Printf("%s\n", txt)
+	}
+	if err := in.Err(); err != nil {
+		log.Printf("readFromCfg: %v", err)
+		return err
+	}
+	return nil
 }
