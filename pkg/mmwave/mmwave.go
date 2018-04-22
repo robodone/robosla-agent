@@ -38,26 +38,26 @@ type Header struct {
 }
 
 type Conn struct {
-	CfgDev  string
-	DataDev string
-	Cfg     serial.Port
-	Data    serial.Port
+	cfgDev  string
+	dataDev string
+	cfg     serial.Port
+	data    serial.Port
 	cubeCh  <-chan []byte
 }
 
 func OpenDev(cfgDev string, cfgBaud int, dataDev string, dataBaud int) (res *Conn, err error) {
 	cubeCh := make(chan []byte, 1)
-	res = &Conn{CfgDev: cfgDev, DataDev: dataDev, cubeCh: cubeCh}
-	res.Cfg, err = serial.Open(cfgDev, cfgBaud)
+	res = &Conn{cfgDev: cfgDev, dataDev: dataDev, cubeCh: cubeCh}
+	res.cfg, err = serial.Open(cfgDev, cfgBaud)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open cfg port: %v", err)
 	}
 	defer func() {
 		if err != nil {
-			res.Cfg.Close()
+			res.cfg.Close()
 		}
 	}()
-	res.Data, err = serial.Open(dataDev, dataBaud)
+	res.data, err = serial.Open(dataDev, dataBaud)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open data port: %v", err)
 	}
@@ -67,8 +67,8 @@ func OpenDev(cfgDev string, cfgBaud int, dataDev string, dataBaud int) (res *Con
 }
 
 func (c *Conn) Close() error {
-	err1 := c.Cfg.Close()
-	err2 := c.Data.Close()
+	err1 := c.cfg.Close()
+	err2 := c.data.Close()
 	if err1 == nil && err2 == nil {
 		return nil
 	}
@@ -104,7 +104,7 @@ func (c *Conn) Configure() (err error) {
 		if err != nil {
 			return
 		}
-		err = sendSerial(c.Cfg, cmd)
+		err = sendSerial(c.cfg, cmd)
 	}
 
 	send("% mmwave-reader")
@@ -145,7 +145,7 @@ func (c *Conn) TakeSnapshot() ([]byte, error) {
 		}
 	}
 	// Start the sensor
-	sendSerial(c.Cfg, "sensorStart")
+	sendSerial(c.cfg, "sensorStart")
 	select {
 	case cube, ok := <-c.cubeCh:
 		if !ok {
@@ -160,7 +160,7 @@ func (c *Conn) TakeSnapshot() ([]byte, error) {
 
 func (c *Conn) readFromData(cubeCh chan<- []byte) {
 	defer close(cubeCh)
-	r := bufio.NewReaderSize(c.Data, BufferSize)
+	r := bufio.NewReaderSize(c.data, BufferSize)
 	cube := make([]byte, 128*16*3*4*4) // numRangeBins * numDopplerBins * numTxAntennas * numRxAntennas * 4 bytes
 	for {
 		data, err := r.Peek(PreviewSize)
@@ -201,7 +201,7 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 			log.Printf("failed to read radar data cube (size: %d): %v", len(cube), err)
 			return
 		}
-		sendSerial(c.Cfg, "sensorStop")
+		sendSerial(c.cfg, "sensorStop")
 		// TODO(krasin): properly wait for sensorStop confirmation.
 		time.Sleep(2 * time.Second)
 		cubeCh <- cube
@@ -209,7 +209,7 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 }
 
 func (c *Conn) readFromCfg() error {
-	in := bufio.NewScanner(c.Cfg)
+	in := bufio.NewScanner(c.cfg)
 	for in.Scan() {
 		txt := strings.TrimSpace(in.Text())
 		log.Printf("%s\n", txt)
