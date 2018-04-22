@@ -93,8 +93,8 @@ func cubeToPNG(cube []byte, width, height int) ([]byte, error) {
 	return res.Bytes(), nil
 }
 
-func readFromData(conn2 *mmwave.Conn) error {
-	r := bufio.NewReaderSize(conn2.Data, BufferSize)
+func readFromData(conn *mmwave.Conn) error {
+	r := bufio.NewReaderSize(conn.Data, BufferSize)
 	cube := make([]byte, 128*16*3*4*4) // numRangeBins * numDopplerBins * numTxAntennas * numRxAntennas * 4 bytes
 	for {
 		data, err := r.Peek(PreviewSize)
@@ -145,9 +145,9 @@ func readFromData(conn2 *mmwave.Conn) error {
 				log.Printf("Error: can't save %s: %v", fname, err)
 			}
 		}(int(hdr.FrameNumber), pngData)
-		sendSerial(conn2.Cfg, "sensorStop")
+		sendSerial(conn.Cfg, "sensorStop")
 		time.Sleep(2 * time.Second)
-		sendSerial(conn2.Cfg, "sensorStart")
+		sendSerial(conn.Cfg, "sensorStart")
 	}
 	return nil
 }
