@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robodone/robosla-agent/pkg/mmwave"
 	"github.com/samofly/serial"
 )
 
@@ -48,15 +49,6 @@ func failf(format string, args ...interface{}) {
 		format += "\n"
 	}
 	log.Fatalf(format, args...)
-}
-
-func mustOpen(name, ttyDev string, baudRate int) serial.Port {
-	conn, err := serial.Open(ttyDev, baudRate)
-	if err != nil {
-		failf("Could not open %s serial port %s at %d bps. Error: %v", name, ttyDev, baudRate, err)
-	}
-	log.Printf("Opened %s serial port %s at %d bps.", name, ttyDev, baudRate)
-	return conn
 }
 
 func readFromCfg(conn serial.Port) error {
@@ -101,8 +93,8 @@ func cubeToPNG(cube []byte, width, height int) ([]byte, error) {
 	return res.Bytes(), nil
 }
 
-func readFromData(cfgConn, conn serial.Port) error {
-	r := bufio.NewReaderSize(conn, BufferSize)
+func readFromData(conn2 *mmwave.Conn) error {
+	r := bufio.NewReaderSize(conn2.Data, BufferSize)
 	cube := make([]byte, 128*16*3*4*4) // numRangeBins * numDopplerBins * numTxAntennas * numRxAntennas * 4 bytes
 	for {
 		data, err := r.Peek(PreviewSize)
@@ -153,9 +145,9 @@ func readFromData(cfgConn, conn serial.Port) error {
 				log.Printf("Error: can't save %s: %v", fname, err)
 			}
 		}(int(hdr.FrameNumber), pngData)
-		sendSerial(cfgConn, "sensorStop")
+		sendSerial(conn2.Cfg, "sensorStop")
 		time.Sleep(2 * time.Second)
-		sendSerial(cfgConn, "sensorStart")
+		sendSerial(conn2.Cfg, "sensorStart")
 	}
 	return nil
 }
@@ -216,16 +208,17 @@ func main() {
 	if *dataDev == "" {
 		failf("--dataDev not specified")
 	}
-	cfgConn := mustOpen("configuration", *cfgDev, *cfgBaud)
-	defer cfgConn.Close()
-	dataConn := mustOpen("data", *dataDev, *dataBaud)
-	defer dataConn.Close()
-	go readFromCfg(cfgConn)
+	conn, err := mmwave.OpenDev(*cfgDev, *cfgBaud, *dataDev, *dataBaud)
+	if err != nil {
+		failf("can't open serial ports to mmWave radar: %v", err)
+	}
+	defer conn.Close()
+	go readFromCfg(conn.Cfg)
 
-	if err := configureRadar(cfgConn); err != nil {
+	if err := configureRadar(conn.Cfg); err != nil {
 		failf("Failed to configure the radar device: %v", err)
 	}
-	if err := readFromData(cfgConn, dataConn); err != nil {
+	if err := readFromData(conn); err != nil {
 		failf("Failed to read radar data: %v", err)
 	}
 }
