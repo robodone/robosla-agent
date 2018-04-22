@@ -144,7 +144,11 @@ func (c *Conn) TakeSnapshot() ([]byte, error) {
 	// Start the sensor
 	sendSerial(c.Cfg, "sensorStart")
 	select {
-	case cube := <-c.cubeCh:
+	case cube, ok := <-c.cubeCh:
+		if !ok {
+			// The connection was closed.
+			return nil, io.EOF
+		}
 		return cube, nil
 	case <-time.After(20 * time.Second):
 		return nil, fmt.Errorf("taking a snapshot timed out")
