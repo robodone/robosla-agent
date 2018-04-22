@@ -165,41 +165,6 @@ func sendSerial(conn serial.Port, cmd string) error {
 	return err
 }
 
-func configureRadar(cfgConn serial.Port) (err error) {
-	send := func(cmd string) {
-		if err != nil {
-			return
-		}
-		err = sendSerial(cfgConn, cmd)
-	}
-
-	send("% mmwave-reader")
-	send("sensorStop")
-	send("flushCfg")
-	send("dfeDataOutputMode 1")
-	send("channelCfg 15 7 0")
-	send("adcCfg 2 1")
-	send("adcbufCfg 0 1 0 1")
-	send("profileCfg 0 77 267 7 57.14 0 0 70 1 112 2279 0 0 30")
-	send("chirpCfg 0 0 0 0 0 0 0 1")
-	send("chirpCfg 1 1 0 0 0 0 0 4")
-	send("chirpCfg 2 2 0 0 0 0 0 2")
-	send("frameCfg 0 2 16 0 1200 1 0")
-	send("guiMonitor 1 1 0 0 0 1")
-	send("cfarCfg 0 2 8 4 3 0 1280")
-	send("peakGrouping 1 1 1 1 114")
-	send("multiObjBeamForming 1 0.5")
-	send("clutterRemoval 0")
-	send("calibDcRangeSig 0 -5 8 256")
-	send("compRangeBiasAndRxChanPhase 0.0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0")
-	send("measureRangeBiasAndRxChanPhase 0 1.5 0.2")
-	send("CQRxSatMonitor 0 3 5 123 0")
-	send("CQSigImgMonitor 0 55 4")
-	send("analogMonitor 1 1")
-	send("sensorStart")
-	return
-}
-
 func main() {
 	flag.Parse()
 	if *cfgDev == "" {
@@ -215,7 +180,7 @@ func main() {
 	defer conn.Close()
 	go readFromCfg(conn.Cfg)
 
-	if err := configureRadar(conn.Cfg); err != nil {
+	if err := conn.Configure(); err != nil {
 		failf("Failed to configure the radar device: %v", err)
 	}
 	if err := readFromData(conn); err != nil {
