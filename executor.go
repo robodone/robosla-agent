@@ -22,7 +22,12 @@ import (
 	"github.com/vincent-petithory/dataurl"
 )
 
-const numSaturationDelays = 20
+const (
+	numSaturationDelays = 20
+
+	MDisplayFrame = 7820
+	MHostDwell    = 7821
+)
 
 type Executor struct {
 	up      *Uplink
@@ -241,7 +246,7 @@ func loadGcode(fname string) (cmds []*Cmd, numFrames int, err error) {
 		if err != nil {
 			return nil, 0, fmt.Errorf("%s:%d: invalid gcode: %v", fname, lineno, err)
 		}
-		if cmd.Type == "M" && cmd.Idx == 7820 {
+		if cmd.Type == "M" && cmd.Idx == MDisplayFrame {
 			frameIdx := int(cmd.Dict['S'])
 			if numFrames < frameIdx {
 				numFrames = frameIdx
@@ -422,8 +427,11 @@ func parseGcodeCommand(baseDir, line string) (*Cmd, error) {
 			asm('P', 'S')
 		case 107:
 			asm('P', 'S')
-		case 7820:
+		case MDisplayFrame:
 			asm('S')
+		case MHostDwell:
+			// Host dwell. P value is the delay in ms.
+			asm('P')
 		default:
 			return nil, fmt.Errorf("unsupported command M%d", num)
 		}
@@ -445,28 +453,36 @@ type Cmd struct {
 }
 
 func (cmd *Cmd) IsHost() bool {
-	return cmd.Type == "M" && cmd.Idx == 7820
+	return cmd.Type == "M" && (cmd.Idx == MDisplayFrame || cmd.Idx == MHostDwell)
 }
 
 func (cmd *Cmd) Run(jobName string, numFrames int, up *Uplink, virtual bool) error {
-	if cmd.Type != "M" || cmd.Idx != 7820 {
+	if cmd.Type != "M" || (cmd.Idx != MDisplayFrame && cmd.Idx != MHostDwell) {
 		return fmt.Errorf("unsupported host command %s%d", cmd.Type, cmd.Idx)
 	}
-	// Show a new frame on the LCD.
-	frameIdx := int(cmd.Dict['S'])
-	fname := path.Join(cmd.BaseDir, fmt.Sprintf("frame-%06d.png", frameIdx))
-	if !virtual {
-		data, err := exec.Command("killall", "fbi").CombinedOutput()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "killall fbi: %v, %v\n", string(data), err)
+	if cmd.Idx == MDisplayFrame {
+		// Show a new frame on the LCD.
+		frameIdx := int(cmd.Dict['S'])
+		fname := path.Join(cmd.BaseDir, fmt.Sprintf("frame-%06d.png", frameIdx))
+		if !virtual {
+			data, err := exec.Command("killall", "fbi").CombinedOutput()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "killall fbi: %v, %v\n", string(data), err)
+			}
+			data, err = exec.Command("fbi", "-noverbose", "-a", "-T", "1", fname).CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("failed to display a frame: %v, %v", string(data), err)
+			}
 		}
-		data, err = exec.Command("fbi", "-noverbose", "-a", "-T", "1", fname).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to display a frame: %v, %v", string(data), err)
-		}
+		up.NotifyFrameIndex(jobName, frameIdx, numFrames)
+		return nil
 	}
-	up.NotifyFrameIndex(jobName, frameIdx, numFrames)
-	return nil
+	if cmd.Idx == MHostDwell {
+		p := int(cmd.Dict['P'])
+		time.Sleep(time.Duration(p) * time.Millisecond)
+		return nil
+	}
+	panic("unreachable")
 }
 
 func tryToRemoveOldJobs(dir string) error {
