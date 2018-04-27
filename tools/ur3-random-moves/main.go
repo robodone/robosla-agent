@@ -8,13 +8,29 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"time"
+)
+
+const (
+	xMin     = 300
+	xMax     = 320
+	yMin     = -48
+	yMax     = -8
+	zMin     = 230
+	zMax     = 270
+	rollMin  = math.Pi - 0.2
+	rollMax  = math.Pi + 0.2
+	pitchMin = -0.2
+	pitchMax = 0.2
+	yawMin   = math.Pi/2 - math.Pi/2
+	yawMax   = math.Pi/2 + math.Pi/2
 )
 
 var (
 	totalDuration = flag.Duration("duration", time.Minute, "How long should the robot move")
-	pauseDuration = flag.Duration("pause", time.Second, "How long to pause between move steps")
-	stepDuration  = flag.Duration("stepDuration", time.Second, "How long to execute a step")
+	pauseDuration = flag.Duration("pause", 1500*time.Millisecond, "How long to pause between move steps")
+	stepDuration  = flag.Duration("stepDuration", 1500*time.Millisecond, "How long to execute a step")
 	stepLength    = flag.Float64("stepLength", 20, "Step length in mm")
 )
 
@@ -22,7 +38,7 @@ var (
 func matmul3(a, b [3][3]float64) (res [3][3]float64) {
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 3; j++ {
-			for k := 0; k < 0; k++ {
+			for k := 0; k < 3; k++ {
 				res[i][j] += a[i][k] * b[k][j]
 			}
 		}
@@ -31,7 +47,7 @@ func matmul3(a, b [3][3]float64) (res [3][3]float64) {
 }
 
 func rpy2RotVec(roll, pitch, yaw float64) ([3]float64, error) {
-	log.Printf("roll=%v, pitch=%v, yaw=%v", roll, pitch, yaw)
+	//log.Printf("roll=%v, pitch=%v, yaw=%v", roll, pitch, yaw)
 	rollM := [3][3]float64{
 		{1, 0, 0},
 		{0, math.Cos(roll), -math.Sin(roll)},
@@ -48,10 +64,10 @@ func rpy2RotVec(roll, pitch, yaw float64) ([3]float64, error) {
 		{0, 0, 1},
 	}
 	rotM := matmul3(matmul3(yawM, pitchM), rollM)
-	log.Printf("rotM: %v", rotM)
+	//log.Printf("rotM: %v", rotM)
 	theta := math.Acos(((rotM[0][0] + rotM[1][1] + rotM[2][2]) - 1) / 2)
 	var denom = 2 * math.Sin(theta)
-	log.Printf("theta: %v, denom: %v", theta, denom)
+	//log.Printf("theta: %v, denom: %v", theta, denom)
 	if math.Abs(denom) < 1E-3 {
 		return [3]float64{0, 0, 0}, fmt.Errorf("anomaly point (denom is close to 0), can't move")
 	}
@@ -63,6 +79,47 @@ func rpy2RotVec(roll, pitch, yaw float64) ([3]float64, error) {
 	}, nil
 }
 
+func ur3X(x float64) float64 {
+	return -0.280 - (x-200)/1000
+}
+
+func ur3Y(y float64) float64 {
+	return -0.112468 - y/1000
+}
+
+func ur3Z(z float64) float64 {
+	return 0.073 + (z-90)/1000
+}
+
+func coord2UR3(x, y, z, roll, pitch, yaw float64) (string, error) {
+	rotvec, err := rpy2RotVec(roll, pitch, yaw)
+	if err != nil {
+		return "", fmt.Errorf("can't get rotation vector from (roll=%v, pitch=%v, yaw=%v): %v", roll, pitch, yaw, err)
+	}
+	xx := ur3X(x)
+	yy := ur3Y(y)
+	zz := ur3Z(z)
+	rx := rotvec[0]
+	ry := rotvec[1]
+	rz := rotvec[2]
+	return fmt.Sprintf("movej(get_inverse_kin(p[%.6f, %.6f, %.6f, %.6f, %.6f, %.6f]), a=0.5, v=0.5)",
+		xx, yy, zz, rx, ry, rz), nil
+}
+
+func randInRange(from, to float64) float64 {
+	return from + rand.Float64()*(to-from)
+}
+
+func randPoint() (x, y, z, roll, pitch, yaw float64) {
+	x = randInRange(xMin, xMax)
+	y = randInRange(yMin, yMax)
+	z = randInRange(zMin, zMax)
+	roll = randInRange(rollMin, rollMax)
+	pitch = randInRange(pitchMin, pitchMax)
+	yaw = randInRange(yawMin, yawMax)
+	return
+}
+
 func main() {
 	flag.Parse()
 
@@ -72,8 +129,15 @@ func main() {
 	fmt.Println("M7821 P3000")
 
 	span := *stepDuration + *pauseDuration
+
 	for d := time.Duration(0); d < *totalDuration; d += span {
+		x, y, z, roll, pitch, yaw := randPoint()
+		cmd, err := coord2UR3(x, y, z, roll, pitch, yaw)
+		if err != nil {
+			log.Fatalf("coord2UR3: %v", err)
+		}
 		fmt.Printf("; Step at %v\n", d)
+		fmt.Println(cmd)
 		fmt.Printf("; host dwell\n")
 		fmt.Printf("M7821 P%d\n\n", int(1000*span.Seconds()))
 	}
