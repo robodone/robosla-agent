@@ -319,6 +319,10 @@ func parseGcodeCommand(baseDir, line string) (*Cmd, error) {
 	// Canonical representation of gcode commands is uppercase.
 	// There are firmwares sensitive to that. It also helps to parse gcode,
 	// if the case is known.
+	// TODO(krasin): remove the UR3 hack. We don't pass movel/movej unmodified.
+	if strings.Index(line, "movej") >= 0 || strings.Index(line, "movel") >= 0 {
+		return &Cmd{Text: line, Type: "-", Idx: 0, Dict: make(map[byte]float64), BaseDir: baseDir}, nil
+	}
 	line = strings.ToUpper(line)
 
 	// Below is a trivial gcode parser. It splits everything into the words,
