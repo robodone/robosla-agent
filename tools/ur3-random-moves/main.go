@@ -13,16 +13,16 @@ import (
 )
 
 const (
-	xMin     = 300
+	xMin     = 270
 	xMax     = 320
-	yMin     = -48
-	yMax     = -8
-	zMin     = 230
+	yMin     = -80
+	yMax     = 70
+	zMin     = 130
 	zMax     = 270
-	rollMin  = math.Pi - 0.2
-	rollMax  = math.Pi + 0.2
-	pitchMin = -0.2
-	pitchMax = 0.2
+	rollMin  = math.Pi - 0.3
+	rollMax  = math.Pi + 0.3
+	pitchMin = -0.3
+	pitchMax = 0.3
 	yawMin   = math.Pi/2 - math.Pi/2
 	yawMax   = math.Pi/2 + math.Pi/2
 )
@@ -30,7 +30,7 @@ const (
 var (
 	totalDuration = flag.Duration("duration", time.Minute, "How long should the robot move")
 	pauseDuration = flag.Duration("pause", 1500*time.Millisecond, "How long to pause between move steps")
-	stepDuration  = flag.Duration("stepDuration", 1500*time.Millisecond, "How long to execute a step")
+	stepDuration  = flag.Duration("stepDuration", 3500*time.Millisecond, "How long to execute a step")
 	stepLength    = flag.Float64("stepLength", 20, "Step length in mm")
 )
 
@@ -102,7 +102,7 @@ func coord2UR3(x, y, z, roll, pitch, yaw float64) (string, error) {
 	rx := rotvec[0]
 	ry := rotvec[1]
 	rz := rotvec[2]
-	return fmt.Sprintf("movej(get_inverse_kin(p[%.6f, %.6f, %.6f, %.6f, %.6f, %.6f]), a=0.5, v=0.5)",
+	return fmt.Sprintf("movej(get_inverse_kin(p[%.6f, %.6f, %.6f, %.6f, %.6f, %.6f]), a=0.4, v=0.3)",
 		xx, yy, zz, rx, ry, rz), nil
 }
 
@@ -120,18 +120,27 @@ func randPoint() (x, y, z, roll, pitch, yaw float64) {
 	return
 }
 
+func goodRandPoint() (x, y, z, roll, pitch, yaw float64) {
+	for {
+		x, y, z, roll, pitch, yaw = randPoint()
+		if _, err := coord2UR3(x, y, z, roll, pitch, yaw); err == nil {
+			return
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
 
 	fmt.Println("; Home it first")
-	fmt.Println("movej(get_inverse_kin(p[-0.32, -0.112468, 0.22599999999999998, 2.2193304157225078, 2.2215519673201243, 0.0000011102208116102493]), a=0.5, v=0.5)")
+	fmt.Println("movej(get_inverse_kin(p[-0.32, -0.112468, 0.22599999999999998, 2.2193304157225078, 2.2215519673201243, 0.0000011102208116102493]), a=0.4, v=0.3)")
 	fmt.Println("; host dwell")
-	fmt.Println("M7821 P3000")
+	fmt.Println("M7821 P6000")
 
 	span := *stepDuration + *pauseDuration
 
 	for d := time.Duration(0); d < *totalDuration; d += span {
-		x, y, z, roll, pitch, yaw := randPoint()
+		x, y, z, roll, pitch, yaw := goodRandPoint()
 		cmd, err := coord2UR3(x, y, z, roll, pitch, yaw)
 		if err != nil {
 			log.Fatalf("coord2UR3: %v", err)
