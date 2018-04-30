@@ -69,6 +69,9 @@ func main() {
 
 		rss = &RaspistillSnapshotter{up: up}
 	}
+	if deviceName == "129814a2e3af3880" /* UR3-01" */ {
+		rss = &MmwaveSnapshotter{up: up}
+	}
 	exe := NewExecutor(up, *virtual, rss)
 
 	var down Downlink

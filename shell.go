@@ -203,7 +203,7 @@ func (sh *Shell) processGcodeUpdates(reqJson string, lastTS int64) int64 {
 			err := sh.exe.Snapshot(ctx)
 			cancel()
 			if err != nil {
-				sh.up.logf("Failed to make a snapshot of all cameras (note: only RealSense at the moment): %v", err)
+				sh.up.logf("Failed to make a snapshot of all cameras: %v", err)
 				return lastTS
 			}
 			dur := time.Now().Sub(start)

@@ -565,7 +565,7 @@ func (exe *Executor) RealSenseTrainPack(ctx context.Context, packID, graspID str
 
 func (exe *Executor) Snapshot(ctx context.Context) error {
 	if exe.rss == nil {
-		return errors.New("RealSense functionality is not enabled")
+		return errors.New("no means to take a snapshot are configured (RealSense, RGB camera, radar, etc)")
 	}
 	dirName, err := ioutil.TempDir("", "robosla-shell-snapshot-")
 	if err != nil {
