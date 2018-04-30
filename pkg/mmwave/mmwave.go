@@ -45,6 +45,12 @@ type Conn struct {
 	cubeCh  <-chan []byte
 }
 
+// Open assumes that the radar is on /dev/ttyACM0 and /dev/ttyACM1 ports.
+// It also uses the standard baud rates.
+func Open() (*Conn, error) {
+	return OpenDev("/dev/ttyACM0", CfgBaudRate, "/dev/ttyACM1", DataBaudRate)
+}
+
 func OpenDev(cfgDev string, cfgBaud int, dataDev string, dataBaud int) (res *Conn, err error) {
 	cubeCh := make(chan []byte, 1)
 	res = &Conn{cfgDev: cfgDev, dataDev: dataDev, cubeCh: cubeCh}
