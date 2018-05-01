@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -17,6 +18,10 @@ type CombinedSnapshotter struct {
 func (cs *CombinedSnapshotter) TakeSnapshot(ctx context.Context, prefix string, numFrames int) error {
 	if numFrames != 1 {
 		return fmt.Errorf("only taking a single snapshot is supported by CombinedSnapshot, but %d was requested", numFrames)
+	}
+	// TODO(krasin): remove this hack by not having realsense- in the first place.
+	if strings.HasSuffix(prefix, "realsense-") {
+		prefix = prefix[:len(prefix)-len("realsense-")]
 	}
 	errs := make(map[string]error)
 	var wg sync.WaitGroup

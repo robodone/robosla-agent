@@ -46,7 +46,7 @@ func main() {
 		fmt.Printf("%s\n", Version)
 		os.Exit(0)
 	}
-	go autoupdate.Run(autoupdate.ProdManifestURL, Version, time.Minute, 5*time.Minute)
+	go autoupdate.Run(autoupdate.ProdManifestURL, Version, time.Minute, 1*time.Minute)
 
 	fmt.Fprintf(os.Stderr, "RoboSLA agent version: %s\n", Version)
 

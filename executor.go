@@ -15,7 +15,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
@@ -27,6 +26,7 @@ const (
 
 	MDisplayFrame = 7820
 	MHostDwell    = 7821
+	MSnapshot     = 7822
 )
 
 type Executor struct {
@@ -86,14 +86,14 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	// Home the printer before the download is completed. This will save us some time later.
 	// Note: this is incompatible with other devices, like robotic arms. We will care about that later.
 	// It will likely have different executors for each device kind.
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := exe.down.WriteAndWaitForOK(ctx, "G28 Z0"); err != nil {
-			exe.up.logf("Failed to home the printer. Error: %v", err)
-		}
-	}()
+	//var wg sync.WaitGroup
+	//wg.Add(1)
+	//go func() {
+	//	defer wg.Done()
+	//	if err := exe.down.WriteAndWaitForOK(ctx, "G28 Z0"); err != nil {
+	//		exe.up.logf("Failed to home the printer. Error: %v", err)
+	//	}
+	//}()
 
 	cmds, numFrames, err := loadGcode(gcodePath)
 	if err != nil {
@@ -107,7 +107,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	}
 	exe.up.logf("Loaded %d gcode commands from %s.", len(cmds), gcodePath)
 	// Wait until it's homed.
-	wg.Wait()
+	//wg.Wait()
 
 	if !exe.down.WaitForConnection(time.Minute) {
 		return ErrNoDownlinkConnection
@@ -116,20 +116,20 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 	time.Sleep(time.Second)
 
 	// No matter what, if this function returns an error, we will try to turn off UV LED.
-	defer func() {
-		if err == nil {
-			return
-		}
-		exe.up.NotifyJobProgress(jobName, 0, 0, 0)
-		// Don't block it for more than 70*3 seconds.
-		ctx, _ := context.WithTimeout(context.Background(), 70*time.Second)
-		// Best effort.
-		for _, cmd := range []string{"M107", "G1 Z170 F200", "M84"} {
-			if err := exe.down.WriteAndWaitForOK(ctx, cmd); err != nil {
-				exe.up.logf("Failed to run abort procedures. Error: %v", err)
-			}
-		}
-	}()
+	//defer func() {
+	//	if err == nil {
+	//		return
+	//	}
+	//	exe.up.NotifyJobProgress(jobName, 0, 0, 0)
+	//	// Don't block it for more than 70*3 seconds.
+	//	ctx, _ := context.WithTimeout(context.Background(), 70*time.Second)
+	//	// Best effort.
+	//	for _, cmd := range []string{"M107", "G1 Z170 F200", "M84"} {
+	//		if err := exe.down.WriteAndWaitForOK(ctx, cmd); err != nil {
+	//			exe.up.logf("Failed to run abort procedures. Error: %v", err)
+	//		}
+	//	}
+	//}()
 
 	var lastProgress float64
 	start := time.Now()
@@ -166,7 +166,7 @@ func (exe *Executor) ExecuteGcode(ctx context.Context, jobName, gcodePath string
 			// We should handle host command failures gracefully. At the very least,
 			// we'll need to turn off the UV light.
 			// But later. Later.
-			if err := cmds[i].Run(jobName, numFrames, exe.up, exe.virtual); err != nil {
+			if err := cmds[i].Run(ctx, jobName, numFrames, exe.up, exe, exe.virtual); err != nil {
 				return fmt.Errorf("failed to execute command %+v: %v", cmds[i], err)
 			}
 			continue
@@ -436,6 +436,8 @@ func parseGcodeCommand(baseDir, line string) (*Cmd, error) {
 		case MHostDwell:
 			// Host dwell. P value is the delay in ms.
 			asm('P')
+		case MSnapshot:
+			asm()
 		default:
 			return nil, fmt.Errorf("unsupported command M%d", num)
 		}
@@ -457,11 +459,11 @@ type Cmd struct {
 }
 
 func (cmd *Cmd) IsHost() bool {
-	return cmd.Type == "M" && (cmd.Idx == MDisplayFrame || cmd.Idx == MHostDwell)
+	return cmd.Type == "M" && (cmd.Idx == MDisplayFrame || cmd.Idx == MHostDwell || cmd.Idx == MSnapshot)
 }
 
-func (cmd *Cmd) Run(jobName string, numFrames int, up *Uplink, virtual bool) error {
-	if cmd.Type != "M" || (cmd.Idx != MDisplayFrame && cmd.Idx != MHostDwell) {
+func (cmd *Cmd) Run(ctx context.Context, jobName string, numFrames int, up *Uplink, exe *Executor, virtual bool) error {
+	if cmd.Type != "M" || (cmd.Idx != MDisplayFrame && cmd.Idx != MHostDwell && cmd.Idx != MSnapshot) {
 		return fmt.Errorf("unsupported host command %s%d", cmd.Type, cmd.Idx)
 	}
 	if cmd.Idx == MDisplayFrame {
@@ -484,6 +486,12 @@ func (cmd *Cmd) Run(jobName string, numFrames int, up *Uplink, virtual bool) err
 	if cmd.Idx == MHostDwell {
 		p := int(cmd.Dict['P'])
 		time.Sleep(time.Duration(p) * time.Millisecond)
+		return nil
+	}
+	if cmd.Idx == MSnapshot {
+		if err := exe.Snapshot(ctx); err != nil {
+			return fmt.Errorf("failed to take a snapshot: %v", err)
+		}
 		return nil
 	}
 	panic("unreachable")
