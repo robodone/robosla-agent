@@ -24,7 +24,8 @@ func (cs *CombinedSnapshotter) TakeSnapshot(ctx context.Context, prefix string, 
 	for name, snap := range cs.Snaps {
 		go func(name string, snap Snapshotter) {
 			defer wg.Done()
-			err := snap.TakeSnapshot(ctx, prefix, numFrames)
+			snapPrefix := fmt.Sprintf("%s%s", prefix, name)
+			err := snap.TakeSnapshot(ctx, snapPrefix, numFrames)
 			if err != nil {
 				errs[name] = err
 			}
