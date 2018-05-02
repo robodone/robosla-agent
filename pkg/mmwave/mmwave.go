@@ -103,7 +103,7 @@ func sendSerial(logger Logger, conn serial.Port, cmd string) error {
 	if err != nil {
 		logger.Logf("Error while writing to serial port: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	return err
 }
 
@@ -240,7 +240,7 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 		}
 		sendSerial(c.log, c.cfg, "sensorStop")
 		// TODO(krasin): properly wait for sensorStop confirmation.
-		time.Sleep(4 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 		select {
 		case cubeCh <- cube:
 		default:
