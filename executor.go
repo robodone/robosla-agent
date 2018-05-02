@@ -15,6 +15,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/robodone/robosla-common/pkg/autoupdate"
@@ -27,6 +28,7 @@ const (
 	MDisplayFrame = 7820
 	MHostDwell    = 7821
 	MSnapshot     = 7822
+	MWaitForIdle  = 7823
 )
 
 type Executor struct {
@@ -34,11 +36,14 @@ type Executor struct {
 	down    Downlink
 	virtual bool
 	rss     Snapshotter
+	stateMu sync.Mutex
+	state   string
+	idleCh  chan bool
 }
 
 // NB: the caller MUST set downlink before using the executor.
 func NewExecutor(up *Uplink, virtual bool, rss Snapshotter) *Executor {
-	return &Executor{up: up, virtual: virtual, rss: rss}
+	return &Executor{up: up, virtual: virtual, rss: rss, idleCh: make(chan bool)}
 }
 
 func isCanceled(ctx context.Context) bool {
@@ -438,6 +443,8 @@ func parseGcodeCommand(baseDir, line string) (*Cmd, error) {
 			asm('P')
 		case MSnapshot:
 			asm()
+		case MWaitForIdle:
+			asm()
 		default:
 			return nil, fmt.Errorf("unsupported command M%d", num)
 		}
@@ -459,11 +466,11 @@ type Cmd struct {
 }
 
 func (cmd *Cmd) IsHost() bool {
-	return cmd.Type == "M" && (cmd.Idx == MDisplayFrame || cmd.Idx == MHostDwell || cmd.Idx == MSnapshot)
+	return cmd.Type == "M" && (cmd.Idx == MDisplayFrame || cmd.Idx == MHostDwell || cmd.Idx == MSnapshot || cmd.Idx == MWaitForIdle)
 }
 
 func (cmd *Cmd) Run(ctx context.Context, jobName string, numFrames int, up *Uplink, exe *Executor, virtual bool) error {
-	if cmd.Type != "M" || (cmd.Idx != MDisplayFrame && cmd.Idx != MHostDwell && cmd.Idx != MSnapshot) {
+	if cmd.Type != "M" || (cmd.Idx != MDisplayFrame && cmd.Idx != MHostDwell && cmd.Idx != MSnapshot && cmd.Idx != MWaitForIdle) {
 		return fmt.Errorf("unsupported host command %s%d", cmd.Type, cmd.Idx)
 	}
 	if cmd.Idx == MDisplayFrame {
@@ -493,6 +500,12 @@ func (cmd *Cmd) Run(ctx context.Context, jobName string, numFrames int, up *Upli
 			return fmt.Errorf("failed to take a snapshot: %v", err)
 		}
 		return nil
+	}
+	if cmd.Idx == MWaitForIdle {
+		up.logf("MWaitForIdle: before executing")
+		// Hack to allow the robot to start moving.
+		time.Sleep(time.Second)
+		return exe.WaitForIdle()
 	}
 	panic("unreachable")
 }
@@ -605,6 +618,36 @@ func (exe *Executor) Snapshot(ctx context.Context) error {
 	exe.up.NotifySnapshot(cameras)
 
 	return nil
+}
+
+func (exe *Executor) NotifyMovingState(state string) {
+	exe.stateMu.Lock()
+	was := exe.state
+	exe.state = state
+	exe.stateMu.Unlock()
+
+	if state != was && state == "idle" {
+		select {
+		case exe.idleCh <- true:
+		default:
+		}
+	}
+}
+
+func (exe *Executor) WaitForIdle() error {
+	for {
+		exe.stateMu.Lock()
+		state := exe.state
+		exe.stateMu.Unlock()
+		if state == "idle" {
+			return nil
+		}
+		select {
+		case <-exe.idleCh:
+			return nil
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func isHexID(str string) bool {

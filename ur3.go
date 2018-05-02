@@ -170,10 +170,18 @@ func (dl *UR3Downlink) readFromRTDE(conn net.Conn) {
 			vec := ur.ParseVector6D(body[1:49])
 			linSpeed := l2(vec[:3])
 			rotSpeed := l2(vec[3:])
-			if linSpeed < 2E-5 {
+			// Constants for regular moves
+			//if linSpeed < 2E-5 {
+			//	linSpeed = 0
+			//}
+			//if rotSpeed < 5E-4 {
+			//	rotSpeed = 0
+			//}
+			// Constants for radar demo. We are very slow there.
+			if linSpeed < 5E-6 {
 				linSpeed = 0
 			}
-			if rotSpeed < 5E-4 {
+			if rotSpeed < 1E-4 {
 				rotSpeed = 0
 			}
 			var state string

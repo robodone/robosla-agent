@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	numSnapshots  = flag.Int("numSnapshots", 5, "Number of snapshots to take")
-	pauseDuration = flag.Duration("pause", 1000*time.Millisecond, "How long to pause between move steps")
+	numSnapshots  = flag.Int("num_snapshots", 5, "Number of snapshots to take")
+	pauseDuration = flag.Duration("pause", 100*time.Millisecond, "How long to pause between move steps")
 )
 
 func main() {

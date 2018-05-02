@@ -209,7 +209,7 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 		}
 		sendSerial(c.cfg, "sensorStop")
 		// TODO(krasin): properly wait for sensorStop confirmation.
-		time.Sleep(2 * time.Second)
+		time.Sleep(4 * time.Second)
 		cubeCh <- cube
 	}
 }

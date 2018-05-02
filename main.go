@@ -80,7 +80,7 @@ func main() {
 	var down Downlink
 	switch *deviceType {
 	case "usb-gcode":
-		if *virtual {
+		if *virtual || deviceName == "7f51037e15b4c836" /* Samovar-01 */ {
 			down = NewVirtualDownlink(up, *speedup)
 		} else {
 			/*realDown := NewRealDownlink(up, *baudRate)
@@ -107,6 +107,7 @@ func main() {
 		}
 		notifyMovingState := func(state string, pose []float64) {
 			up.NotifyMovingState(state, pose)
+			exe.NotifyMovingState(state)
 			// We try to take snapshot, if we are not moving.
 			if state != "moving" && rss != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
