@@ -37,7 +37,12 @@ type Header struct {
 	NumTLVs        uint32
 }
 
+type Logger interface {
+	Logf(format string, args ...interface{})
+}
+
 type Conn struct {
+	log     Logger
 	cfgDev  string
 	dataDev string
 	cfg     serial.Port
@@ -47,13 +52,13 @@ type Conn struct {
 
 // Open assumes that the radar is on /dev/ttyACM0 and /dev/ttyACM1 ports.
 // It also uses the standard baud rates.
-func Open() (*Conn, error) {
-	return OpenDev("/dev/ttyACM0", CfgBaudRate, "/dev/ttyACM1", DataBaudRate)
+func Open(logger Logger) (*Conn, error) {
+	return OpenDev(logger, "/dev/ttyACM0", CfgBaudRate, "/dev/ttyACM1", DataBaudRate)
 }
 
-func OpenDev(cfgDev string, cfgBaud int, dataDev string, dataBaud int) (res *Conn, err error) {
+func OpenDev(logger Logger, cfgDev string, cfgBaud int, dataDev string, dataBaud int) (res *Conn, err error) {
 	cubeCh := make(chan []byte, 1)
-	res = &Conn{cfgDev: cfgDev, dataDev: dataDev, cubeCh: cubeCh}
+	res = &Conn{log: logger, cfgDev: cfgDev, dataDev: dataDev, cubeCh: cubeCh}
 	res.cfg, err = serial.Open(cfgDev, cfgBaud)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open cfg port: %v", err)
@@ -90,14 +95,14 @@ func (c *Conn) Close() error {
 	panic("unreachable")
 }
 
-func sendSerial(conn serial.Port, cmd string) error {
+func sendSerial(logger Logger, conn serial.Port, cmd string) error {
 	if !strings.HasSuffix(cmd, "\n") {
 		cmd += "\n"
 	}
 	fmt.Print(cmd)
 	_, err := fmt.Fprint(conn, cmd)
 	if err != nil {
-		log.Printf("Error while writing to serial port: %v", err)
+		logger.Logf("Error while writing to serial port: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
 	return err
@@ -110,7 +115,7 @@ func (c *Conn) Configure() (err error) {
 		if err != nil {
 			return
 		}
-		err = sendSerial(c.cfg, cmd)
+		err = sendSerial(c.log, c.cfg, cmd)
 	}
 
 	send("% mmwave-reader")
@@ -151,7 +156,7 @@ func (c *Conn) TakeSnapshot() ([]byte, error) {
 		}
 	}
 	// Start the sensor
-	sendSerial(c.cfg, "sensorStart")
+	sendSerial(c.log, c.cfg, "sensorStart")
 	select {
 	case cube, ok := <-c.cubeCh:
 		if !ok {
@@ -171,7 +176,7 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 	for {
 		data, err := r.Peek(PreviewSize)
 		if err != nil && err != io.EOF {
-			log.Printf("readFromData, peek failed: %v", err)
+			c.log.Logf("readFromData, peek failed: %v", err)
 			return
 		}
 		if len(data) < HeaderSize {
@@ -182,13 +187,13 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 		pos := bytes.Index(data, MagicWord)
 		if pos < 0 {
 			// No magic word in the preview window. Discarding the data.
-			log.Printf("Discard %d bytes", len(data))
+			c.log.Logf("Discard %d bytes", len(data))
 			r.Discard(len(data))
 			continue
 		}
 		if pos > 0 {
 			// Discard the remainings of the previous frame.
-			log.Printf("Discard %d bytes", pos)
+			c.log.Logf("Discard %d bytes", pos)
 			r.Discard(pos)
 		}
 		_, err = r.Peek(HeaderSize)
@@ -198,16 +203,16 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 		}
 		var hdr Header
 		if err = binary.Read(r, binary.LittleEndian, &hdr); err != nil {
-			log.Printf("failed to read radar message header: %v", err)
+			c.log.Logf("failed to read radar message header: %v", err)
 			return
 		}
 		log.Printf("hdr: %+v", hdr)
 		r.Discard(int(hdr.TotalPacketLen) - HeaderSize)
 		if _, err = io.ReadFull(r, cube); err != nil {
-			log.Printf("failed to read radar data cube (size: %d): %v", len(cube), err)
+			c.log.Logf("failed to read radar data cube (size: %d): %v", len(cube), err)
 			return
 		}
-		sendSerial(c.cfg, "sensorStop")
+		sendSerial(c.log, c.cfg, "sensorStop")
 		// TODO(krasin): properly wait for sensorStop confirmation.
 		time.Sleep(4 * time.Second)
 		cubeCh <- cube
@@ -218,10 +223,10 @@ func (c *Conn) readFromCfg() error {
 	in := bufio.NewScanner(c.cfg)
 	for in.Scan() {
 		txt := strings.TrimSpace(in.Text())
-		log.Printf("%s\n", txt)
+		c.log.Logf("%s\n", txt)
 	}
 	if err := in.Err(); err != nil {
-		log.Printf("readFromCfg: %v", err)
+		c.log.Logf("readFromCfg: %v", err)
 		return err
 	}
 	return nil

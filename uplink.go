@@ -250,6 +250,10 @@ func (up *Uplink) NotifyGripperState(state string) {
 	})
 }
 
+func (up *Uplink) Logf(format string, args ...interface{}) {
+	up.logf(format, args...)
+}
+
 func (up *Uplink) logf(format string, args ...interface{}) {
 	up.pendingLogsMu.Lock()
 	defer up.pendingLogsMu.Unlock()

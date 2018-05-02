@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"io/ioutil"
 	"sync"
+	"time"
 
 	"github.com/robodone/robosla-agent/pkg/mmwave"
 )
@@ -45,7 +46,7 @@ func (rss *MmwaveSnapshotter) TakeSnapshot(ctx context.Context, prefix string, n
 
 	if rss.radar == nil {
 		var err error
-		rss.radar, err = mmwave.Open()
+		rss.radar, err = mmwave.Open(rss.up)
 		if err != nil {
 			return fmt.Errorf("failed to connect to mmwave radar: %v", err)
 		}
@@ -54,10 +55,12 @@ func (rss *MmwaveSnapshotter) TakeSnapshot(ctx context.Context, prefix string, n
 		}
 	}
 	fname := fmt.Sprintf("%s%02d-camera0.jpg", prefix, 0)
+	start := time.Now()
 	cube, err := rss.radar.TakeSnapshot()
 	if err != nil {
 		return fmt.Errorf("failed to read radar data: %v", err)
 	}
+	rss.up.logf("TakeSnapshot took %v", time.Now().Sub(start))
 	jpegData, err := cubeToJPEG(cube, 384, 128)
 	if err != nil {
 		return fmt.Errorf("cubeToImage: %v", err)

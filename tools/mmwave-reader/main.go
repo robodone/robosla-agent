@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io/ioutil"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/robodone/robosla-agent/pkg/mmwave"
@@ -45,6 +46,15 @@ func cubeToPNG(cube []byte, width, height int) ([]byte, error) {
 	return res.Bytes(), nil
 }
 
+type stderrLogger struct{}
+
+func (sl *stderrLogger) Logf(format string, args ...interface{}) {
+	if !strings.HasSuffix(format, "\n") {
+		format += "\n"
+	}
+	fmt.Fprintf(os.Stderr, format, args...)
+}
+
 func main() {
 	flag.Parse()
 	if *cfgDev == "" {
@@ -53,7 +63,7 @@ func main() {
 	if *dataDev == "" {
 		failf("--dataDev not specified")
 	}
-	conn, err := mmwave.OpenDev(*cfgDev, *cfgBaud, *dataDev, *dataBaud)
+	conn, err := mmwave.OpenDev(new(stderrLogger), *cfgDev, *cfgBaud, *dataDev, *dataBaud)
 	if err != nil {
 		failf("can't open serial ports to mmWave radar: %v", err)
 	}
