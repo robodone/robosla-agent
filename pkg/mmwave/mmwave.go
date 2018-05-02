@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 
@@ -17,8 +16,8 @@ const (
 	CfgBaudRate  = 115200
 	DataBaudRate = 921600
 
-	BufferSize  = 4 << 10
-	PreviewSize = 1 << 10
+	BufferSize  = 1 << 10
+	PreviewSize = 1 << 9
 	HeaderSize  = 36
 )
 
@@ -145,6 +144,30 @@ func (c *Conn) Configure() (err error) {
 	return
 }
 
+// Configure stops the radar sensor and configures it and leaves the sensor stopped.
+// It must be called at least once after opening the connection.
+func (c *Conn) MiniConfigure() (err error) {
+	send := func(cmd string) {
+		if err != nil {
+			return
+		}
+		err = sendSerial(c.log, c.cfg, cmd)
+	}
+
+	send("% mmwave-reader")
+	send("sensorStop")
+	send("flushCfg")
+	send("dfeDataOutputMode 1")
+	send("channelCfg 15 7 0")
+	send("adcCfg 2 1")
+	send("profileCfg 0 77 267 7 57.14 0 0 70 1 112 2279 0 0 30")
+	send("chirpCfg 0 0 0 0 0 0 0 1")
+	send("chirpCfg 1 1 0 0 0 0 0 4")
+	send("chirpCfg 2 2 0 0 0 0 0 2")
+	send("frameCfg 0 2 16 0 1200 1 0")
+	return
+}
+
 func (c *Conn) TakeSnapshot() ([]byte, error) {
 	// Receive all stale data and forget it.
 	var cleared bool
@@ -154,6 +177,9 @@ func (c *Conn) TakeSnapshot() ([]byte, error) {
 		default:
 			cleared = true
 		}
+	}
+	if err := c.MiniConfigure(); err != nil {
+		return nil, fmt.Errorf("failed to configure before taking a snapshot: %v", err)
 	}
 	// Start the sensor
 	sendSerial(c.log, c.cfg, "sensorStart")
@@ -181,7 +207,7 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 		}
 		if len(data) < HeaderSize {
 			// Not enough data, let's wait a bit.
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(20 * time.Millisecond)
 			continue
 		}
 		pos := bytes.Index(data, MagicWord)
@@ -206,7 +232,7 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 			c.log.Logf("failed to read radar message header: %v", err)
 			return
 		}
-		log.Printf("hdr: %+v", hdr)
+		c.log.Logf("hdr: %+v", hdr)
 		r.Discard(int(hdr.TotalPacketLen) - HeaderSize)
 		if _, err = io.ReadFull(r, cube); err != nil {
 			c.log.Logf("failed to read radar data cube (size: %d): %v", len(cube), err)
@@ -215,7 +241,10 @@ func (c *Conn) readFromData(cubeCh chan<- []byte) {
 		sendSerial(c.log, c.cfg, "sensorStop")
 		// TODO(krasin): properly wait for sensorStop confirmation.
 		time.Sleep(4 * time.Second)
-		cubeCh <- cube
+		select {
+		case cubeCh <- cube:
+		default:
+		}
 	}
 }
 
