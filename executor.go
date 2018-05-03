@@ -593,8 +593,7 @@ func (exe *Executor) Snapshot(ctx context.Context) error {
 		return fmt.Errorf("failed to create a temp directory")
 	}
 	exe.up.logf("Temp dir %s created", dirName)
-	// TODO(krasin): remove the temp directory.
-	//defer os.RemoveAll(dirName)
+	defer os.RemoveAll(dirName)
 
 	prefix := path.Join(dirName, "realsense-")
 	if err := exe.rss.TakeSnapshot(ctx, prefix, 1 /*numFrames*/); err != nil {

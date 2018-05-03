@@ -103,7 +103,7 @@ func sendSerial(logger Logger, conn serial.Port, cmd string) error {
 	if err != nil {
 		logger.Logf("Error while writing to serial port: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	return err
 }
 
@@ -178,21 +178,24 @@ func (c *Conn) TakeSnapshot() ([]byte, error) {
 			cleared = true
 		}
 	}
-	if err := c.MiniConfigure(); err != nil {
-		return nil, fmt.Errorf("failed to configure before taking a snapshot: %v", err)
-	}
-	// Start the sensor
-	sendSerial(c.log, c.cfg, "sensorStart")
-	select {
-	case cube, ok := <-c.cubeCh:
-		if !ok {
-			// The connection was closed.
-			return nil, io.EOF
+	// Trying to be more robust about timeouts.
+	for i := 0; i < 3; i++ {
+		if err := c.MiniConfigure(); err != nil {
+			return nil, fmt.Errorf("failed to configure before taking a snapshot: %v", err)
 		}
-		return cube, nil
-	case <-time.After(20 * time.Second):
-		return nil, fmt.Errorf("taking a snapshot timed out")
+		// Start the sensor
+		sendSerial(c.log, c.cfg, "sensorStart")
+		select {
+		case cube, ok := <-c.cubeCh:
+			if !ok {
+				// The connection was closed.
+				return nil, io.EOF
+			}
+			return cube, nil
+		case <-time.After(20 * time.Second):
+		}
 	}
+	return nil, fmt.Errorf("taking a snapshot timed out (even after retries)")
 }
 
 func (c *Conn) readFromData(cubeCh chan<- []byte) {
