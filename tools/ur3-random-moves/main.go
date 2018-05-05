@@ -9,7 +9,6 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"time"
 )
 
 const (
@@ -28,10 +27,7 @@ const (
 )
 
 var (
-	totalDuration = flag.Duration("duration", time.Minute, "How long should the robot move")
-	pauseDuration = flag.Duration("pause", 1500*time.Millisecond, "How long to pause between move steps")
-	stepDuration  = flag.Duration("stepDuration", 3500*time.Millisecond, "How long to execute a step")
-	stepLength    = flag.Float64("stepLength", 20, "Step length in mm")
+	steps = flag.Int("steps", 20000, "Number of steps")
 )
 
 // Matrix multiply for 3x3 matrices.
@@ -102,7 +98,7 @@ func coord2UR3(x, y, z, roll, pitch, yaw float64) (string, error) {
 	rx := rotvec[0]
 	ry := rotvec[1]
 	rz := rotvec[2]
-	return fmt.Sprintf("movej(get_inverse_kin(p[%.6f, %.6f, %.6f, %.6f, %.6f, %.6f]), a=0.4, v=0.3)",
+	return fmt.Sprintf("movej(get_inverse_kin(p[%.6f, %.6f, %.6f, %.6f, %.6f, %.6f]), a=0.1, v=0.01)",
 		xx, yy, zz, rx, ry, rz), nil
 }
 
@@ -134,20 +130,18 @@ func main() {
 
 	fmt.Println("; Home it first")
 	fmt.Println("movej(get_inverse_kin(p[-0.32, -0.112468, 0.22599999999999998, 2.2193304157225078, 2.2215519673201243, 0.0000011102208116102493]), a=0.4, v=0.3)")
-	fmt.Println("; host dwell")
-	fmt.Println("M7821 P6000")
+	fmt.Println("; wait for idle")
+	fmt.Println("M7823")
 
-	span := *stepDuration + *pauseDuration
-
-	for d := time.Duration(0); d < *totalDuration; d += span {
+	for i := 0; i < *steps; i++ {
 		x, y, z, roll, pitch, yaw := goodRandPoint()
 		cmd, err := coord2UR3(x, y, z, roll, pitch, yaw)
 		if err != nil {
 			log.Fatalf("coord2UR3: %v", err)
 		}
-		fmt.Printf("; Step at %v\n", d)
+		fmt.Printf("; Step %d/%d\n", i, *steps)
 		fmt.Println(cmd)
-		fmt.Printf("; host dwell\n")
-		fmt.Printf("M7821 P%d\n\n", int(1000*span.Seconds()))
+		fmt.Printf("; wait for idle\n")
+		fmt.Printf("M7823\n\n")
 	}
 }
